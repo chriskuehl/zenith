@@ -1,5 +1,7 @@
 {
   "devDependencies": {
+    "@types/react": "^18.0.37",
+    "@types/react-dom": "^18.0.11",
     "html-webpack-plugin": "^5.5.1",
     "ts-loader": "^9.4.2",
     "typescript": "^5.0.4",
@@ -10,5 +12,9 @@
   "scripts": {
     "build": "NODE_ENV=production webpack build",
     "serve": "NODE_ENV=development webpack serve --host 127.0.0.1 --port 9123"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   }
 }
