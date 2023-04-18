@@ -1,3 +1,47 @@
+@import "./reset.css";
+
 body {
-    background-color: blue;
+    background-color: pink;
+}
+
+.zenith {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+
+    display: flex;
+    flex-direction: column;
+}
+
+.top-bar {
+    background-color: yellow;
+}
+
+.content {
+    position: relative;
+    flex-grow: 1;
+    background-color: green;
+}
+
+.content #game-canvas {
+    background-color: black;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+}
+
+.joystick-circle {
+    position: relative;
+}
+
+.joystick-circle .indicator {
+    border-radius: 10px;
+    border: solid 5px purple;
+    width: 0;
+    height: 0;
+    position: absolute;
 }
