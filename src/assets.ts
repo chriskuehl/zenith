@@ -1,4 +1,4 @@
-import GridImage from './img/grid.png';
+import TilesImage from './img/tiles.png';
 import PlayerImage from './img/player.png';
 
 const makeImage = (url: string) => {
@@ -8,6 +8,6 @@ const makeImage = (url: string) => {
 };
 
 export const images = {
-    grid: makeImage(GridImage),
+    tiles: makeImage(TilesImage),
     player: makeImage(PlayerImage),
 };

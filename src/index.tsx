@@ -3,11 +3,12 @@ import { createRoot, Root } from 'react-dom/client';
 import { images } from './assets';
 import "./css/main.css";
 import JoystickCircleImage from './img/joystick.svg';
+import { TRANSPARENCY_TILES, DEFAULT_BACKGROUND, DEFAULT_BOX, Tile, Box, TileType } from './tiles';
 
 const TICKS_PER_SECOND = 360;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const TILE_WIDTH = 16;
-const TILE_HEIGHT = 16;
+const TILE_HEIGHT = TILE_WIDTH;
 
 const PLAYER_WIDTH = 2;
 const PLAYER_HEIGHT = 3;
@@ -21,6 +22,9 @@ const PLAYER_AIR_FRICTION = 0.9; // Horizontal acceleration multiplier per tick.
 const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
 const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
 const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELOCITY ** 2)) ** 0.5; // Tiles per tick.
+// Time to restore dash ability when standing on the floor. Used to make
+// wavedashing more challenging.
+const PLAYER_RESTORE_DASH_DELAY = 10; // Ticks.
 
 type ControllerState = {
     name: string;
@@ -156,11 +160,12 @@ enum PlayerDirection {
 }
 
 class Player {
-    pos = [45, 0];
+    pos = [10, 0];
     velocity = [0, 0];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
     hasDashAbility = true;
+    ticksTouchingFloor = 0;
 };
 
 class ZenithGame {
@@ -262,11 +267,26 @@ class ZenithGame {
 
         const levelWidth = 90 * TILE_WIDTH;
         const levelHeight = 40 * TILE_HEIGHT;
+        const relativeFocusPoint = [
+            (this.player.pos[0] * TILE_WIDTH),
+            (this.player.pos[1] * TILE_HEIGHT),
+        ];
 
-        // For now just center it, even if it doesn't fit...
         return [
-            (ctx.canvas.width - levelWidth) / 2,
-            (ctx.canvas.height - levelHeight) / 2,
+            ctx.canvas.width >= levelWidth ? Math.floor((ctx.canvas.width - levelWidth) / 2) : Math.min(
+                0,
+                Math.max(
+                    ctx.canvas.width - levelWidth,
+                    Math.floor((ctx.canvas.width / 2) - relativeFocusPoint[0]),
+                ),
+            ),
+            ctx.canvas.height >= levelHeight ? Math.floor((ctx.canvas.height - levelHeight) / 2) : Math.min(
+                0,
+                Math.max(
+                    ctx.canvas.height - levelHeight,
+                    Math.floor((ctx.canvas.height / 2) - relativeFocusPoint[1]),
+                ),
+            ),
         ];
     }
 
@@ -279,11 +299,53 @@ class ZenithGame {
         const height = 40;
         const offset = this.gameOffset();
 
+        const drawTile = (x: number, y: number, tile: Tile) => {
+            ctx.drawImage(
+                images.tiles,
+                TILE_WIDTH * tile.offset[0],
+                TILE_HEIGHT * tile.offset[1],
+                TILE_WIDTH,
+                TILE_HEIGHT,
+                offset[0] + (x * TILE_WIDTH),
+                offset[1] + (y * TILE_HEIGHT),
+                TILE_WIDTH,
+                TILE_HEIGHT,
+            );
+        };
+
         for (let x = 0; x < width; x++) {
             for (let y = 0; y < height; y++) {
-                ctx.drawImage(images.grid, TILE_WIDTH * ((x + y) % 2), 0, TILE_WIDTH, TILE_HEIGHT, offset[0] + x * TILE_WIDTH, offset[1] + y * TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT);
+                //.drawTile(x, y, TRANSPARENCY_TILES[(x + y) % TRANSPARENCY_TILES.length]);
+                drawTile(x, y, DEFAULT_BACKGROUND);
             }
         }
+
+        drawTile(29, 33, DEFAULT_BOX.cornerTopLeft);
+        drawTile(30, 33, DEFAULT_BOX.top);
+        drawTile(31, 33, DEFAULT_BOX.top);
+        drawTile(32, 33, DEFAULT_BOX.top);
+        drawTile(33, 33, DEFAULT_BOX.cornerTopRight);
+        drawTile(29, 34, DEFAULT_BOX.left);
+        drawTile(30, 34, DEFAULT_BOX.fill);
+        drawTile(31, 34, DEFAULT_BOX.fill);
+        drawTile(32, 34, DEFAULT_BOX.fill);
+        drawTile(33, 34, DEFAULT_BOX.right);
+        drawTile(29, 35, DEFAULT_BOX.cornerBottomLeft);
+        drawTile(30, 35, DEFAULT_BOX.bottom);
+        drawTile(31, 35, DEFAULT_BOX.bottom);
+        drawTile(32, 35, DEFAULT_BOX.bottom);
+        drawTile(33, 35, DEFAULT_BOX.cornerBottomRight);
+
+        /*
+        for (let x = 0; x < width; x++) {
+            for (let y = 0; y < height; y++) {
+                if (Math.random() < 0.1) {
+                    // drawTile(x, y, TRANSPARENCY_TILES[(x + y) % TRANSPARENCY_TILES.length]);
+                    drawTile(x, y, DEFAULT_BOX.top); //) % TRANSPARENCY_TILES.length]);
+                }
+            }
+        }
+        */
 
         ctx.drawImage(images.player, this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH, 0, TILE_WIDTH * PLAYER_WIDTH, TILE_HEIGHT * PLAYER_HEIGHT, offset[0] + TILE_WIDTH * (this.player.pos[0] - (PLAYER_WIDTH / 2)), offset[1] + TILE_HEIGHT * (this.player.pos[1] - PLAYER_HEIGHT), TILE_WIDTH * PLAYER_WIDTH, TILE_HEIGHT * PLAYER_HEIGHT);
     }
@@ -363,7 +425,16 @@ class ZenithGame {
 
             if (this.player.pos[1] === 40) {
                 this.player.velocity[1] = 0;
-                this.player.hasDashAbility = true;
+                this.player.ticksTouchingFloor++;
+                if (this.player.ticksTouchingFloor > PLAYER_RESTORE_DASH_DELAY) {
+                    this.player.hasDashAbility = true;
+                }
+            } else {
+                this.player.ticksTouchingFloor = 0;
+            }
+
+            if (this.player.pos[1] === 0) {
+                this.player.velocity[1] = 0;
             }
         }
 
