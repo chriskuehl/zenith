@@ -23,6 +23,7 @@ const PLAYER_AIR_FRICTION = 0.9; // Horizontal acceleration multiplier per tick.
 const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
 const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
 const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELOCITY ** 2)) ** 0.5; // Tiles per tick.
+const PLAYER_MOVEMENT_STEP = 0.1; // Tiles.
 // Time to restore dash ability when standing on the floor. Used to make
 // wavedashing more challenging.
 const PLAYER_RESTORE_DASH_DELAY = 8; // Ticks.
@@ -161,12 +162,16 @@ enum PlayerDirection {
 }
 
 class Player {
-    pos = [10, 0];
+    pos = [55, 2];
     velocity = [0, 0];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
     hasDashAbility = true;
     ticksTouchingFloor = 0;
+    hitLeftWall = false;
+    hitRightWall = false;
+    hitCeiling = false;
+    hitFloor = false;
 };
 
 class ZenithGame {
@@ -295,13 +300,9 @@ class ZenithGame {
 
     renderGame() {
         const ctx = this.canvasCtx!;
-
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        const width = this.level.width();
-        const height = this.level.height();
         const offset = this.gameOffset();
-
         const drawTile = (x: number, y: number, tile: Tile) => {
             ctx.drawImage(
                 images.tiles,
@@ -319,41 +320,101 @@ class ZenithGame {
         for (let x = 0; x < this.level.width(); x++) {
             for (let y = 0; y < this.level.height(); y++) {
                 drawTile(x, y, this.level.columns[x][y]);
-                //.drawTile(x, y, TRANSPARENCY_TILES[(x + y) % TRANSPARENCY_TILES.length]);
-                //drawTile(x, y, DEFAULT_BACKGROUND);
             }
         }
-
-        /*
-        drawTile(29, 33, DEFAULT_BOX.cornerTopLeft);
-        drawTile(30, 33, DEFAULT_BOX.top);
-        drawTile(31, 33, DEFAULT_BOX.top);
-        drawTile(32, 33, DEFAULT_BOX.top);
-        drawTile(33, 33, DEFAULT_BOX.cornerTopRight);
-        drawTile(29, 34, DEFAULT_BOX.left);
-        drawTile(30, 34, DEFAULT_BOX.fill);
-        drawTile(31, 34, DEFAULT_BOX.fill);
-        drawTile(32, 34, DEFAULT_BOX.fill);
-        drawTile(33, 34, DEFAULT_BOX.right);
-        drawTile(29, 35, DEFAULT_BOX.cornerBottomLeft);
-        drawTile(30, 35, DEFAULT_BOX.bottom);
-        drawTile(31, 35, DEFAULT_BOX.bottom);
-        drawTile(32, 35, DEFAULT_BOX.bottom);
-        drawTile(33, 35, DEFAULT_BOX.cornerBottomRight);
-        */
-
-        /*
-        for (let x = 0; x < width; x++) {
-            for (let y = 0; y < height; y++) {
-                if (Math.random() < 0.1) {
-                    // drawTile(x, y, TRANSPARENCY_TILES[(x + y) % TRANSPARENCY_TILES.length]);
-                    drawTile(x, y, DEFAULT_BOX.top); //) % TRANSPARENCY_TILES.length]);
-                }
-            }
-        }
-        */
 
         ctx.drawImage(images.player, this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH, 0, TILE_WIDTH * PLAYER_WIDTH, TILE_HEIGHT * PLAYER_HEIGHT, offset[0] + TILE_WIDTH * (this.player.pos[0] - (PLAYER_WIDTH / 2)), offset[1] + TILE_HEIGHT * (this.player.pos[1] - PLAYER_HEIGHT), TILE_WIDTH * PLAYER_WIDTH, TILE_HEIGHT * PLAYER_HEIGHT);
+    }
+
+    handlePlayerMovement() {
+        const [vecx, vecy] = this.player.velocity;
+        const dist = (vecx ** 2 + vecy ** 2) ** 0.5;
+        const steps = Math.ceil(dist / PLAYER_MOVEMENT_STEP);
+        const [stepVecx, stepVecy] = [vecx / steps, vecy / steps];
+
+        const tile = (x: number, y: number) => {
+            if (x < 0 || x >= this.level.width() || y < 0 || y >= this.level.height()) {
+                return TileType.Blocking;
+            } else {
+                return this.level.columns[Math.floor(x)][Math.floor(y)].type;
+            }
+        }
+
+        for (let step = 0; step < steps; step++) {
+            let newx = this.player.pos[0] + stepVecx;
+            let newy = this.player.pos[1] + stepVecy;
+
+            this.player.hitLeftWall = (
+                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP) === TileType.Blocking ||
+                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - 2) === TileType.Blocking
+            );
+            this.player.hitRightWall = (
+                tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP) === TileType.Blocking ||
+                tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - 2) === TileType.Blocking
+            );
+
+            if (this.player.hitLeftWall || this.player.hitRightWall) {
+                newx = this.player.pos[0];
+            }
+
+            this.player.hitCeiling = (
+                tile(newx + PLAYER_WIDTH / 2, newy - 2) === TileType.Blocking ||
+                tile(newx - PLAYER_WIDTH / 2, newy - 2) === TileType.Blocking
+            );
+            this.player.hitFloor = (
+                tile(newx + PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP) === TileType.Blocking ||
+                tile(newx - PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP) === TileType.Blocking
+            );
+
+            if (this.player.hitCeiling || this.player.hitFloor) {
+                newy = this.player.pos[1];
+            }
+
+            this.player.pos[0] = newx;
+            this.player.pos[1] = newy;
+        }
+
+        if ((this.player.hitLeftWall && this.player.velocity[0] < 0) || (this.player.hitRightWall && this.player.velocity[0] > 0)) {
+            this.player.velocity[0] = 0;
+        }
+
+        if (this.player.hitFloor) {
+            if (this.player.velocity[1] > 0) {
+                this.player.velocity[1] = 0;
+            }
+
+            this.player.ticksTouchingFloor++;
+            if (this.player.ticksTouchingFloor > PLAYER_RESTORE_DASH_DELAY) {
+                this.player.hasDashAbility = true;
+            }
+        } else {
+            this.player.ticksTouchingFloor = 0;
+        }
+
+        if (this.player.hitCeiling && this.player.velocity[1] < 0) {
+            this.player.velocity[1] = 0;
+        }
+
+        return;
+
+        this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(this.level.width() - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
+        this.player.pos[1] = Math.max(PLAYER_HEIGHT, Math.min(this.level.height(), this.player.pos[1] + this.player.velocity[1]));
+
+        if (Math.abs(this.player.velocity[0]) < 0.001 || this.player.pos[0] === PLAYER_WIDTH/2 || this.player.pos[0] === this.level.width() - PLAYER_WIDTH/2) {
+            this.player.velocity[0] = 0;
+        }
+
+        if (this.player.pos[1] === this.level.height()) {
+            this.player.velocity[1] = 0;
+            this.player.ticksTouchingFloor++;
+            if (this.player.ticksTouchingFloor > PLAYER_RESTORE_DASH_DELAY) {
+                this.player.hasDashAbility = true;
+            }
+        }
+
+        if (this.player.pos[1] === PLAYER_HEIGHT) {
+            this.player.velocity[1] = 0;
+        }
     }
 
     loop() {
@@ -387,12 +448,12 @@ class ZenithGame {
 
                 // Jump.
                 if (controllerState.buttons.a) {
-                    if (this.player.pos[1] === this.level.height()) {
+                    if (this.player.ticksTouchingFloor > 0) {
                         this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
-                    } else if (this.player.pos[0] === PLAYER_WIDTH/2) {
+                    } else if (this.player.hitLeftWall) {
                         this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
                         this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
-                    } else if (this.player.pos[0] === this.level.width() - PLAYER_WIDTH/2) {
+                    } else if (this.player.hitRightWall) {
                         this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
                         this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
                     }
@@ -422,25 +483,7 @@ class ZenithGame {
                 this.player.velocity[1] += PLAYER_GRAVITY_ACCEL;
             }
 
-            // TODO: replace with collision code
-            this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(this.level.width() - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
-            this.player.pos[1] = Math.max(PLAYER_HEIGHT, Math.min(this.level.height(), this.player.pos[1] + this.player.velocity[1]));
-
-            if (Math.abs(this.player.velocity[0]) < 0.001 || this.player.pos[0] === PLAYER_WIDTH/2 || this.player.pos[0] === this.level.width() - PLAYER_WIDTH/2) {
-                this.player.velocity[0] = 0;
-            }
-
-            if (this.player.pos[1] === this.level.height()) {
-                this.player.velocity[1] = 0;
-                this.player.ticksTouchingFloor++;
-                if (this.player.ticksTouchingFloor > PLAYER_RESTORE_DASH_DELAY) {
-                    this.player.hasDashAbility = true;
-                }
-            }
-
-            if (this.player.pos[1] === PLAYER_HEIGHT) {
-                this.player.velocity[1] = 0;
-            }
+            this.handlePlayerMovement();
         }
 
         // Game render.
