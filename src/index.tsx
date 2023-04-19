@@ -3,13 +3,11 @@ import { createRoot, Root } from 'react-dom/client';
 import { images } from './assets';
 import "./css/main.css";
 import JoystickCircleImage from './img/joystick.svg';
-import { TRANSPARENCY_TILES, DEFAULT_BACKGROUND, DEFAULT_BOX, Tile, Box, TileType } from './tiles';
+import { TILE_WIDTH, TILE_HEIGHT, TRANSPARENCY_TILES, DEFAULT_BACKGROUND, DEFAULT_BOX, Tile, Box, TileType } from './tiles';
 import { createDefaultLevel } from './levels';
 
 const TICKS_PER_SECOND = 360;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
-const TILE_WIDTH = 16;
-const TILE_HEIGHT = TILE_WIDTH;
 
 const PLAYER_WIDTH = 2;
 const PLAYER_HEIGHT = 3;
@@ -19,6 +17,8 @@ const PLAYER_DASH_VELOCITY = 1;  // Tiles per tick.
 const PLAYER_DASH_VELOCITY_VERTICAL_MULTIPLIER = 0.5; // Multiplier on vertical velocity.
 // TODO: rename this if we decide not to restore hang time.
 const PLAYER_DASH_HANG_TIME = 30; // Ticks.
+const PLAYER_DASH_CONTRAIL_OPACITY = 0.8; // Opacity.
+const PLAYER_DASH_CONTRAIL_FADE = 0.01; // Opacity decrease per tick.
 const PLAYER_AIR_FRICTION = 0.9; // Horizontal acceleration multiplier per tick.
 const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
 const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
@@ -26,7 +26,10 @@ const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELO
 const PLAYER_MOVEMENT_STEP = 0.1; // Tiles.
 // Time to restore dash ability when standing on the floor. Used to make
 // wavedashing more challenging.
-const PLAYER_RESTORE_DASH_DELAY = 8; // Ticks.
+//
+// TODO: fix somehow? setting this above zero makes wavedashing more skillful
+// but ruins regular jump-land-jump-dash a lot of the time.
+const PLAYER_RESTORE_DASH_DELAY = 0; // Ticks.
 
 type ControllerState = {
     name: string;
@@ -161,12 +164,15 @@ enum PlayerDirection {
     Right,
 }
 
+type DashPosition = [PlayerDirection, number, number, number];
+
 class Player {
     pos = [55, 2];
     velocity = [0, 0];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
     hasDashAbility = true;
+    dashPositions: DashPosition[] = [];
     ticksTouchingFloor = 0;
     hitLeftWall = false;
     hitRightWall = false;
@@ -303,38 +309,51 @@ class ZenithGame {
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
         const offset = this.gameOffset();
-        const drawTile = (x: number, y: number, tile: Tile) => {
-            const drawX = offset[0] + (x * TILE_WIDTH);
-            const drawY = offset[1] + (y * TILE_HEIGHT);
-            if (
-                drawX > ctx.canvas.width ||
-                drawY > ctx.canvas.height ||
-                drawX < -TILE_WIDTH ||
-                drawY < -TILE_HEIGHT
-            ) {
-                return;
-            }
 
+        // Level.
+        // TODO: add logic to only draw the portion of the level which is visible.
+        ctx.drawImage(
+            this.level.bitmap,
+            0,
+            0,
+            TILE_WIDTH * this.level.width(),
+            TILE_HEIGHT * this.level.height(),
+            offset[0],
+            offset[1],
+            TILE_WIDTH * this.level.width(),
+            TILE_HEIGHT * this.level.height(),
+        );
+
+        // Player.
+        ctx.drawImage(
+            images.player.img,
+            this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH,
+            this.player.hasDashAbility ? 0 : TILE_HEIGHT * PLAYER_HEIGHT,
+            TILE_WIDTH * PLAYER_WIDTH,
+            TILE_HEIGHT * PLAYER_HEIGHT,
+            offset[0] + TILE_WIDTH * (this.player.pos[0] - (PLAYER_WIDTH / 2)),
+            offset[1] + TILE_HEIGHT * (this.player.pos[1] - PLAYER_HEIGHT),
+            TILE_WIDTH * PLAYER_WIDTH,
+            TILE_HEIGHT * PLAYER_HEIGHT,
+        );
+
+        // Player dash frames.
+        this.player.dashPositions.forEach((pos) => {
+            const [direction, x, y, opacity] = pos;
+            ctx.globalAlpha = Math.max(0, opacity);
             ctx.drawImage(
-                images.tiles,
-                TILE_WIDTH * tile.offset[0],
-                TILE_HEIGHT * tile.offset[1],
-                TILE_WIDTH,
-                TILE_HEIGHT,
-                drawX,
-                drawY,
-                TILE_WIDTH,
-                TILE_HEIGHT,
+                images.player.img,
+                direction === PlayerDirection.Left? 0 : TILE_WIDTH * PLAYER_WIDTH,
+                2 * TILE_HEIGHT * PLAYER_HEIGHT,
+                TILE_WIDTH * PLAYER_WIDTH,
+                TILE_HEIGHT * PLAYER_HEIGHT,
+                offset[0] + TILE_WIDTH * (x - (PLAYER_WIDTH / 2)),
+                offset[1] + TILE_HEIGHT * (y - PLAYER_HEIGHT),
+                TILE_WIDTH * PLAYER_WIDTH,
+                TILE_HEIGHT * PLAYER_HEIGHT,
             );
-        };
-
-        for (let x = 0; x < this.level.width(); x++) {
-            for (let y = 0; y < this.level.height(); y++) {
-                drawTile(x, y, this.level.columns[x][y]);
-            }
-        }
-
-        ctx.drawImage(images.player, this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH, 0, TILE_WIDTH * PLAYER_WIDTH, TILE_HEIGHT * PLAYER_HEIGHT, offset[0] + TILE_WIDTH * (this.player.pos[0] - (PLAYER_WIDTH / 2)), offset[1] + TILE_HEIGHT * (this.player.pos[1] - PLAYER_HEIGHT), TILE_WIDTH * PLAYER_WIDTH, TILE_HEIGHT * PLAYER_HEIGHT);
+        });
+        ctx.globalAlpha = 1;
     }
 
     handlePlayerMovement() {
@@ -447,6 +466,7 @@ class ZenithGame {
 
         for (let tick = 0; tick < this.ticksPerFrame; tick++) {
             this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
+
             if (controllerState) {
                 const [vecx, vecy] = vecxy(controllerState);
                 if (vecx < 0) {
@@ -486,6 +506,19 @@ class ZenithGame {
             }
 
             if (this.player.dashTicksRemaining > 0) {
+                if (
+                        this.player.dashPositions.length === 0 ||
+                        this.player.dashPositions[this.player.dashPositions.length - 1][1] !== this.player.pos[0] ||
+                        this.player.dashPositions[this.player.dashPositions.length - 1][2] !== this.player.pos[1]
+                ) {
+                    this.player.dashPositions.push([
+                        this.player.direction,
+                        this.player.pos[0],
+                        this.player.pos[1],
+                        PLAYER_DASH_CONTRAIL_OPACITY,
+                    ]);
+                }
+
                 // TODO: figure out how to fix this to not suck.
                 this.player.velocity[0] *= 0.95;
                 this.player.velocity[1] += 0.0025;
@@ -493,6 +526,10 @@ class ZenithGame {
                 this.player.velocity[0] *= PLAYER_AIR_FRICTION;
                 this.player.velocity[1] += PLAYER_GRAVITY_ACCEL;
             }
+
+            this.player.dashPositions = this.player.dashPositions
+                .map((p: DashPosition): DashPosition => [p[0], p[1], p[2], p[3] - PLAYER_DASH_CONTRAIL_FADE])
+                .filter(p => p[3] > 0);
 
             this.handlePlayerMovement();
         }
@@ -519,14 +556,24 @@ class ZenithGame {
     }
 }
 
+const waitForAssetsToLoad = async () => {
+    await Promise.all(Object.values(images).map(image => image.loaded));
+};
+
 
 const startup = () => {
-    const container = document.createElement('div');
-    container.id = 'container';
-    document.body.appendChild(container);
+    waitForAssetsToLoad()
+        .catch((e) => {
+            alert(`Could not load assets: ${e}`);
+        })
+        .then(() => {
+            const container = document.createElement('div');
+            container.id = 'container';
+            document.body.appendChild(container);
 
-    const game = new ZenithGame(container);
-    game.run();
+            const game = new ZenithGame(container);
+            game.run();
+        });
 };
 
 startup();

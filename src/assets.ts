@@ -1,13 +1,21 @@
 import TilesImage from './img/tiles.png';
 import PlayerImage from './img/player.png';
 
-const makeImage = (url: string) => {
-    const image = new Image();
-    image.src = url;
-    return image;
-};
+
+class AwaitableImage {
+    img: HTMLImageElement;
+    loaded: Promise<void>;
+
+    constructor(src: string) {
+        this.img = new Image();
+        this.loaded = new Promise((resolve) => {
+            this.img.onload = () => {resolve()};
+        });
+        this.img.src = src;
+    }
+}
 
 export const images = {
-    tiles: makeImage(TilesImage),
-    player: makeImage(PlayerImage),
+    tiles: new AwaitableImage(TilesImage),
+    player: new AwaitableImage(PlayerImage),
 };

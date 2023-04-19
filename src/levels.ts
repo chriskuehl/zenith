@@ -1,10 +1,13 @@
-import { Tile, TileType, Box, DEFAULT_BACKGROUND, DEFAULT_BOX, TRANSPARENCY_TILES } from './tiles';
+import { Tile, TileType, Box, TILE_WIDTH, TILE_HEIGHT, DEFAULT_BACKGROUND, DEFAULT_BOX, TRANSPARENCY_TILES } from './tiles';
+import { images } from './assets';
 
 export class Level {
     columns: Tile[][];
+    bitmap: ImageBitmap;
 
     constructor(columns: Tile[][]) {
         this.columns = columns;
+        this.render();
     }
 
     width(): number {
@@ -17,6 +20,27 @@ export class Level {
 
     tileId(x: number, y: number) {
         return x * this.height() + y;
+    }
+
+    render() {
+        const canvas = new OffscreenCanvas(this.width() * TILE_WIDTH, this.height() * TILE_HEIGHT);
+        const ctx = canvas.getContext('2d')!;
+        for (let x = 0; x < this.width(); x++) {
+            for (let y = 0; y < this.height(); y++) {
+                ctx.drawImage(
+                    images.tiles.img,
+                    TILE_WIDTH * this.columns[x][y].offset[0],
+                    TILE_HEIGHT * this.columns[x][y].offset[1],
+                    TILE_WIDTH,
+                    TILE_HEIGHT,
+                    x * TILE_WIDTH,
+                    y * TILE_HEIGHT,
+                    TILE_WIDTH,
+                    TILE_HEIGHT,
+                );
+            }
+        }
+        this.bitmap = canvas.transferToImageBitmap();
     }
 
     static createEmpty(width: number, height: number): Level {
@@ -94,7 +118,7 @@ const fixBoxEdges = (level: Level, box: Box) => {
 };
 
 export const createDefaultLevel = () => {
-    const level = Level.createEmpty(1000, 50);
+    const level = Level.createEmpty(200, 50);
 
     fillBox(level, DEFAULT_BOX, 20, 40, 14, 3);
     fillBox(level, DEFAULT_BOX, 24, 36, 6, 10);
@@ -107,6 +131,8 @@ export const createDefaultLevel = () => {
     fillBox(level, DEFAULT_BOX, 107, 10, 4, 35);
 
     fixBoxEdges(level, DEFAULT_BOX);
+
+    level.render();
 
     return level;
 }
