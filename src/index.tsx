@@ -304,14 +304,25 @@ class ZenithGame {
 
         const offset = this.gameOffset();
         const drawTile = (x: number, y: number, tile: Tile) => {
+            const drawX = offset[0] + (x * TILE_WIDTH);
+            const drawY = offset[1] + (y * TILE_HEIGHT);
+            if (
+                drawX > ctx.canvas.width ||
+                drawY > ctx.canvas.height ||
+                drawX < -TILE_WIDTH ||
+                drawY < -TILE_HEIGHT
+            ) {
+                return;
+            }
+
             ctx.drawImage(
                 images.tiles,
                 TILE_WIDTH * tile.offset[0],
                 TILE_HEIGHT * tile.offset[1],
                 TILE_WIDTH,
                 TILE_HEIGHT,
-                offset[0] + (x * TILE_WIDTH),
-                offset[1] + (y * TILE_HEIGHT),
+                drawX,
+                drawY,
                 TILE_WIDTH,
                 TILE_HEIGHT,
             );

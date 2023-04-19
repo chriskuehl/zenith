@@ -94,7 +94,7 @@ const fixBoxEdges = (level: Level, box: Box) => {
 };
 
 export const createDefaultLevel = () => {
-    const level = Level.createEmpty(200, 50);
+    const level = Level.createEmpty(1000, 50);
 
     fillBox(level, DEFAULT_BOX, 20, 40, 14, 3);
     fillBox(level, DEFAULT_BOX, 24, 36, 6, 10);
