@@ -50,3 +50,19 @@ body {
     height: 0;
     position: absolute;
 }
+
+.player-stats .dash {
+    font-weight: bold;
+}
+
+.player-stats .dash.has-dash {
+    color: green;
+}
+
+.player-stats .dash.no-dash {
+    color: red;
+}
+
+.player-stats .dash.dashing {
+    color: blue;
+}

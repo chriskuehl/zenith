@@ -4,17 +4,23 @@ import { images } from './assets';
 import "./css/main.css";
 import JoystickCircleImage from './img/joystick.svg';
 
-const FPS = 60;
-const MS_PER_FRAME = 1000 / FPS;
+const TICKS_PER_SECOND = 360;
+const TICK_MS = 1000 / TICKS_PER_SECOND;
 const TILE_WIDTH = 16;
 const TILE_HEIGHT = 16;
 
 const PLAYER_WIDTH = 2;
 const PLAYER_HEIGHT = 3;
-const PLAYER_ACCEL = 0.2;
-const PLAYER_MAX_VELOCITY = 2;
-const PLAYER_DASH_VELOCITY = 1.2;
-const PLAYER_DASH_TIMING_MS = MS_PER_FRAME * 6;
+const PLAYER_WALK_ACCEL = 0.02;  // Tiles per tick per tick.
+const PLAYER_DASH_VELOCITY = 1;  // Tiles per tick.
+// TODO: remove this if we can make horiz/vertical deccel more consistent.
+const PLAYER_DASH_VELOCITY_VERTICAL_MULTIPLIER = 0.5; // Multiplier on vertical velocity.
+// TODO: rename this if we decide not to restore hang time.
+const PLAYER_DASH_HANG_TIME = 30; // Ticks.
+const PLAYER_AIR_FRICTION = 0.9; // Horizontal acceleration multiplier per tick.
+const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
+const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
+const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELOCITY ** 2)) ** 0.5; // Tiles per tick.
 
 type ControllerState = {
     name: string;
@@ -40,9 +46,19 @@ type ControllerState = {
 };
 
 const PlayerStatDisplay: React.FC<{player: Player}> = ({player}) => {
-    return <p>
+    let hasDash;
+    if (player.dashTicksRemaining > 0) {
+        hasDash = <span className="dash dashing">Dashing</span>;
+    } else if (player.hasDashAbility) {
+        hasDash = <span className="dash has-dash">Has Dash</span>;
+    } else {
+        hasDash = <span className="dash no-dash">No Dash</span>;
+    }
+
+    return <p className="player-stats">
         Pos: ({player.pos[0].toFixed(1)}, {player.pos[1].toFixed(1)})
         Velocity: ({player.velocity[0].toFixed(1)}, {player.velocity[1].toFixed(1)})
+        Dash: {hasDash}
     </p>;
 };
 
@@ -71,7 +87,7 @@ const ControllerDisplay: React.FC<{state: ControllerState | null}> = ({state}) =
                         <li>Buttons: {JSON.stringify(state.buttons)}</li>
                     </>
                     :
-                    <li>No controller connected.</li>
+                    <li>No controller connected. Connect a controller and press any button.</li>
                 }
             </ul>
         </div>
@@ -80,6 +96,7 @@ const ControllerDisplay: React.FC<{state: ControllerState | null}> = ({state}) =
 
 type ZenithAppProps = {
     fps: number;
+    ticksPerFrame: number;
     controllerState: ControllerState | null;
     player: Player;
 }
@@ -103,7 +120,7 @@ const ZenithApp: React.FC<ZenithAppProps> = (props) => {
 
     return <div className="zenith">
         <div className="top-bar">
-            <p>FPS: {props.fps}</p>
+            <p>FPS: {props.fps} Ticks/Frame: {props.ticksPerFrame}</p>
             <PlayerStatDisplay player={props.player} />
             <ControllerDisplay state={props.controllerState} />
         </div>
@@ -139,11 +156,10 @@ enum PlayerDirection {
 }
 
 class Player {
-    pos = [0, 0];
+    pos = [45, 0];
     velocity = [0, 0];
     direction = PlayerDirection.Right;
-    lastDashTimeMs: number | null = null;
-    isMidDash = false;
+    dashTicksRemaining = 0;
     hasDashAbility = true;
 };
 
@@ -152,6 +168,7 @@ class ZenithGame {
     lastFrameMs = 0;
     framesSinceLastSecond = 0;
     fps = 0;
+    ticksPerFrame = 0;
     gamepadIndex: number | null = null;
     canvasCtx: CanvasRenderingContext2D | null = null;
     player: Player = new Player();
@@ -196,14 +213,12 @@ class ZenithGame {
             up: false,
         };
 
-        const deflection = (gamepad.axes[0]**2 + gamepad.axes[1]**2)**0.5;
+        const deflection = (gamepad.axes[0] ** 2 + gamepad.axes[1] ** 2) ** 0.5;
         if (deflection > 0.7) {
             let angle = Math.atan2(gamepad.axes[1], gamepad.axes[0]) + Math.PI/8;
-            console.log("before:", angle);
             if (angle < 0) {
                 angle = 2 * Math.PI + angle;
             }
-            console.log("after:", angle);
 
             // right, down, left, up
             const directions = [false, false, false, false];
@@ -278,7 +293,8 @@ class ZenithGame {
 
         // FPS logic.
         const now = window.performance.now();
-        const elapsed = this.lastFrameMs - now;
+        const elapsed = now - this.lastFrameMs;
+        this.ticksPerFrame = Math.round(elapsed / TICK_MS);
         if (Math.floor(now / 1000) > Math.floor(this.lastFrameMs / 1000)) {
             this.fps = this.framesSinceLastSecond;
             this.framesSinceLastSecond = 0;
@@ -287,68 +303,68 @@ class ZenithGame {
         this.framesSinceLastSecond++;
 
         // Game logic.
-        this.player.isMidDash = this.player.lastDashTimeMs ?  (now - this.player.lastDashTimeMs) < PLAYER_DASH_TIMING_MS : false;
         const controllerState = this.getControllerState();
 
-        if (controllerState) {
-            const [vecx, vecy] = vecxy(controllerState);
-            if (vecx < 0) {
-                this.player.direction = PlayerDirection.Left;
-                if (this.player.velocity[0] > -PLAYER_MAX_VELOCITY) {
-                    this.player.velocity[0] = Math.max(-PLAYER_MAX_VELOCITY, this.player.velocity[0] - PLAYER_ACCEL);
+        for (let tick = 0; tick < this.ticksPerFrame; tick++) {
+            this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
+            if (controllerState) {
+                const [vecx, vecy] = vecxy(controllerState);
+                if (vecx < 0) {
+                    this.player.direction = PlayerDirection.Left;
+                    this.player.velocity[0] -= PLAYER_WALK_ACCEL;
+                } else if (vecx > 0) {
+                    this.player.direction = PlayerDirection.Right;
+                    this.player.velocity[0] += PLAYER_WALK_ACCEL;
                 }
-            } else if (vecx > 0) {
-                this.player.direction = PlayerDirection.Right;
-                if (this.player.velocity[0] < PLAYER_MAX_VELOCITY) {
-                    this.player.velocity[0] = Math.min(PLAYER_MAX_VELOCITY, this.player.velocity[0] + PLAYER_ACCEL);
+
+                // Jump.
+                if (controllerState.buttons.a) {
+                    if (this.player.pos[1] === 40) {
+                        this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
+                    } else if (this.player.pos[0] === PLAYER_WIDTH/2) {
+                        this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
+                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                    } else if (this.player.pos[0] === 90 - PLAYER_WIDTH/2) {
+                        this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
+                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                    }
+                }
+
+                // Dash.
+                if (
+                    (controllerState.buttons.x || controllerState.buttons.b) &&
+                    this.player.hasDashAbility &&
+                    this.player.dashTicksRemaining === 0
+                ) {
+                    const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
+                    this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
+                    this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy * PLAYER_DASH_VELOCITY_VERTICAL_MULTIPLIER;
+                    this.player.hasDashAbility = false;
+                    this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
                 }
             }
 
-            // Jump.
-            if (controllerState.buttons.a) {
-                if (this.player.pos[1] === 40) {
-                    this.player.velocity[1] = -1.2;
-                } else if (this.player.pos[0] === PLAYER_WIDTH/2) {
-                    this.player.velocity[0] = 1.2;
-                    this.player.velocity[1] = -1.2;
-                } else if (this.player.pos[0] === 90 - PLAYER_WIDTH/2) {
-                    this.player.velocity[0] = -1.2;
-                    this.player.velocity[1] = -1.2;
-                }
+            if (this.player.dashTicksRemaining > 0) {
+                // TODO: figure out how to fix this to not suck.
+                this.player.velocity[0] *= 0.95;
+                this.player.velocity[1] += 0.0025;
+            } else {
+                this.player.velocity[0] *= PLAYER_AIR_FRICTION;
+                this.player.velocity[1] += PLAYER_GRAVITY_ACCEL;
             }
 
-            // Super jump.
-            if (controllerState.buttons.y && this.player.pos[1] === 40) {
-                this.player.velocity[1] = -2;
+            // TODO: replace with collision code
+            this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(90 - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
+            this.player.pos[1] = Math.max(0, Math.min(40, this.player.pos[1] + this.player.velocity[1]));
+
+            if (Math.abs(this.player.velocity[0]) < 0.001 || this.player.pos[0] === PLAYER_WIDTH/2 || this.player.pos[0] === 90 - PLAYER_WIDTH/2) {
+                this.player.velocity[0] = 0;
             }
 
-            // Dash.
-            if ((controllerState.buttons.x || controllerState.buttons.b) && this.player.hasDashAbility && !this.player.isMidDash) {
-                const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
-                this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
-                this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
-                this.player.hasDashAbility = false;
-                this.player.lastDashTimeMs = now;
-                this.player.isMidDash = true;
+            if (this.player.pos[1] === 40) {
+                this.player.velocity[1] = 0;
+                this.player.hasDashAbility = true;
             }
-        }
-
-        if (!this.player.isMidDash) {
-            this.player.velocity[0] *= 0.7;
-            this.player.velocity[1] += 0.1;  // More realistic velocity changes, plus make it reset to zero when hitting the floor.
-        }
-
-        // TODO: replace with collision code
-        this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(90 - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
-        this.player.pos[1] = Math.max(0, Math.min(40, this.player.pos[1] + this.player.velocity[1]));
-
-        if (Math.abs(this.player.velocity[0]) < 0.001 || this.player.pos[0] === PLAYER_WIDTH/2 || this.player.pos[0] === 90 - PLAYER_WIDTH/2) {
-            this.player.velocity[0] = 0;
-        }
-
-        if (this.player.pos[1] === 40) {
-            this.player.velocity[1] = 0;
-            this.player.hasDashAbility = true;
         }
 
         // Game render.
@@ -367,6 +383,7 @@ class ZenithGame {
         this.root.render(<ZenithApp
             controllerState={controllerState}
             fps={this.fps}
+            ticksPerFrame={this.ticksPerFrame}
             player={this.player}
         />);
     }
