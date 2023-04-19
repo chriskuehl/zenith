@@ -34,6 +34,11 @@ body {
     bottom: 0;
 }
 
+.controller-display {
+    display: flex;
+    column-gap: 10px;
+}
+
 .joystick-circle {
     position: relative;
 }

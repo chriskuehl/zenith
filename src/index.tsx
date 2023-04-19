@@ -13,8 +13,8 @@ const PLAYER_WIDTH = 2;
 const PLAYER_HEIGHT = 3;
 const PLAYER_ACCEL = 0.2;
 const PLAYER_MAX_VELOCITY = 2;
-const PLAYER_DASH_VELOCITY = 1.8;
-const PLAYER_DASH_TIMING_MS = MS_PER_FRAME * 3;
+const PLAYER_DASH_VELOCITY = 1.2;
+const PLAYER_DASH_TIMING_MS = MS_PER_FRAME * 6;
 
 type ControllerState = {
     name: string;
@@ -39,8 +39,11 @@ type ControllerState = {
     };
 };
 
-const PlayerStatDisplay: React.FC<{player: Player | null}> = ({player}) => {
-    return <p>{JSON.stringify(player)}</p>;
+const PlayerStatDisplay: React.FC<{player: Player}> = ({player}) => {
+    return <p>
+        Pos: ({player.pos[0].toFixed(1)}, {player.pos[1].toFixed(1)})
+        Velocity: ({player.velocity[0].toFixed(1)}, {player.velocity[1].toFixed(1)})
+    </p>;
 };
 
 const JoystickCircle: React.FC<{axis: [number, number]}> = ({axis}) => {
@@ -54,21 +57,25 @@ const JoystickCircle: React.FC<{axis: [number, number]}> = ({axis}) => {
 };
 
 const ControllerDisplay: React.FC<{state: ControllerState | null}> = ({state}) => {
-    if (state) {
-        return <>
-            <p>Controller state:</p>
+    return <>
+        <p>Controller state:</p>
+        <div className="controller-display">
+            <JoystickCircle axis={state ? state.leftAxis : [0, 0]} />
             <ul>
-                <li>Name: {state.name}</li>
-                <li>Left Axis: {state.leftAxis[0].toFixed(2)} {state.leftAxis[1].toFixed(2)}</li>
-                <li>Joystick: {JSON.stringify(state.joystick)}</li>
-                <li>Dpad: {JSON.stringify(state.dpad)}</li>
-                <li>Buttons: {JSON.stringify(state.buttons)}</li>
+                {state !== null ?
+                    <>
+                        <li>Name: {state.name}</li>
+                        <li>Left Axis: {state.leftAxis[0].toFixed(2)} {state.leftAxis[1].toFixed(2)}</li>
+                        <li>Joystick: {JSON.stringify(state.joystick)}</li>
+                        <li>Dpad: {JSON.stringify(state.dpad)}</li>
+                        <li>Buttons: {JSON.stringify(state.buttons)}</li>
+                    </>
+                    :
+                    <li>No controller connected.</li>
+                }
             </ul>
-            <JoystickCircle axis={state.leftAxis} />
-        </>;
-    } else {
-        return <p>No controller connected. Connect controller and press any button.</p>;
-    }
+        </div>
+    </>;
 };
 
 type ZenithAppProps = {
@@ -191,10 +198,12 @@ class ZenithGame {
 
         const deflection = (gamepad.axes[0]**2 + gamepad.axes[1]**2)**0.5;
         if (deflection > 0.7) {
-            let angle = Math.atan2(gamepad.axes[1], gamepad.axes[0]) - Math.PI/8;
+            let angle = Math.atan2(gamepad.axes[1], gamepad.axes[0]) + Math.PI/8;
+            console.log("before:", angle);
             if (angle < 0) {
                 angle = 2 * Math.PI + angle;
             }
+            console.log("after:", angle);
 
             // right, down, left, up
             const directions = [false, false, false, false];
@@ -296,8 +305,16 @@ class ZenithGame {
             }
 
             // Jump.
-            if (controllerState.buttons.a && this.player.pos[1] === 40) {
-                this.player.velocity[1] = -1.2;
+            if (controllerState.buttons.a) {
+                if (this.player.pos[1] === 40) {
+                    this.player.velocity[1] = -1.2;
+                } else if (this.player.pos[0] === PLAYER_WIDTH/2) {
+                    this.player.velocity[0] = 1.2;
+                    this.player.velocity[1] = -1.2;
+                } else if (this.player.pos[0] === 90 - PLAYER_WIDTH/2) {
+                    this.player.velocity[0] = -1.2;
+                    this.player.velocity[1] = -1.2;
+                }
             }
 
             // Super jump.
@@ -306,22 +323,32 @@ class ZenithGame {
             }
 
             // Dash.
-            if ((controllerState.buttons.x || controllerState.buttons.b) && this.player.hasDashAbility) {
+            if ((controllerState.buttons.x || controllerState.buttons.b) && this.player.hasDashAbility && !this.player.isMidDash) {
                 const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
                 this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
                 this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
-                //this.player.hasDashAbility = false;
+                this.player.hasDashAbility = false;
                 this.player.lastDashTimeMs = now;
                 this.player.isMidDash = true;
             }
         }
 
-        this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(90 - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
-        this.player.pos[1] = Math.max(0, Math.min(40, this.player.pos[1] + this.player.velocity[1]));
-
         if (!this.player.isMidDash) {
             this.player.velocity[0] *= 0.7;
             this.player.velocity[1] += 0.1;  // More realistic velocity changes, plus make it reset to zero when hitting the floor.
+        }
+
+        // TODO: replace with collision code
+        this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(90 - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
+        this.player.pos[1] = Math.max(0, Math.min(40, this.player.pos[1] + this.player.velocity[1]));
+
+        if (Math.abs(this.player.velocity[0]) < 0.001 || this.player.pos[0] === PLAYER_WIDTH/2 || this.player.pos[0] === 90 - PLAYER_WIDTH/2) {
+            this.player.velocity[0] = 0;
+        }
+
+        if (this.player.pos[1] === 40) {
+            this.player.velocity[1] = 0;
+            this.player.hasDashAbility = true;
         }
 
         // Game render.

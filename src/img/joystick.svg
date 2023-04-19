@@ -7,8 +7,11 @@
    viewBox="0 0 120 120"
    version="1.1"
    id="svg5"
-   inkscape:version="1.2.2 (b0a8486, 2022-12-01)"
    sodipodi:docname="circle.svg"
+   inkscape:version="1.2.2 (b0a8486, 2022-12-01)"
+   inkscape:export-filename="../joystick.svg"
+   inkscape:export-xdpi="160"
+   inkscape:export-ydpi="160"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -47,19 +50,19 @@
        r="59.29422" />
     <path
        style="fill:#ff8080;stroke:#050000;stroke-width:1.00146;stroke-opacity:1"
-       d="M 60.5,0 V 119.99999"
+       d="M 82.961678,4.567507 37.03967,115.43304"
        id="path1682" />
     <path
        style="fill:#ff8080;stroke:#050000;stroke-width:1.00146;stroke-opacity:1"
-       d="M 120,60.5 H 0"
+       d="M 115.43249,82.96168 4.5669468,37.039668"
        id="path1682-7" />
     <path
        style="fill:#ff8080;stroke:#050000;stroke-width:1.00146;stroke-opacity:1"
-       d="M 102.42643,102.42588 17.573569,17.57307"
-       id="path1682-7-4" />
+       d="M 115.43333,37.039834 4.5677969,82.961841"
+       id="path1682-0" />
     <path
        style="fill:#ff8080;stroke:#050000;stroke-width:1.00146;stroke-opacity:1"
-       d="M 17.57357,102.42643 102.42638,17.573569"
-       id="path1682-7-4-9" />
+       d="M 82.960609,115.43322 37.038599,4.5676753"
+       id="path1682-7-4" />
   </g>
 </svg>
