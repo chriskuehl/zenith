@@ -8,6 +8,7 @@ type LevelExport = {
     height: number,
     tiles: string[],
 };
+type Background = {image: AwaitableImage, moveFactor: number};
 
 export class Level {
     backgroundColor: string = 'pink';
@@ -15,7 +16,7 @@ export class Level {
     bitmap: ImageBitmap;
 
     // Parallax background images, closest first.
-    backgrounds: AwaitableImage[] = [];
+    backgrounds: Background[] = [];
 
     constructor(columns: TileId[][]) {
         this.columns = columns;
@@ -160,11 +161,11 @@ export const createDefaultLevel = () => {
     const level = Level.createFromExport(defaultLevelData);
     level.backgroundColor = 'rgb(50, 50, 50)';
     level.backgrounds = [
-        images.defaultLevelParallaxX,
-        images.defaultLevelParallax0,
-        images.defaultLevelParallax1,
-        images.defaultLevelParallax2,
-        //images.defaultLevelParallax3,
+        {image: images.defaultLevelParallaxX, moveFactor: 900},
+        {image: images.defaultLevelParallax0, moveFactor: 0},
+        {image: images.defaultLevelParallax1, moveFactor: 10},
+        {image: images.defaultLevelParallax2, moveFactor: 200},
+        //[images.defaultLevelParallax3, ],
     ];
     level.render();
     return level;

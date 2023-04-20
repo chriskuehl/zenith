@@ -281,7 +281,7 @@ enum PlayerDirection {
 type DashPosition = [PlayerDirection, number, number, number];
 
 class Player {
-    pos = [55, 2];
+    pos = [20, 2];
     velocity = [0, 0];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
@@ -314,7 +314,10 @@ class ZenithGame {
     run() {
         resetLevelCallback = () => {
             this.level = createDefaultLevel();
-        }
+            if (this.editModeEnabled) {
+                this.level.render(true);
+            }
+        };
         exportLevelCallback = () => {
             const levelExport = this.level.generateExport();
             navigator.clipboard.writeText(levelExport)
@@ -324,7 +327,7 @@ class ZenithGame {
                 .then(() => {
                     alert("Level export copied to your clipboard.");
                 });
-        }
+        };
 
         this.renderUI();
         this.loop();
@@ -444,12 +447,12 @@ class ZenithGame {
         ctx.fillRect(offset[0], offset[1], this.level.bitmap.width, this.level.bitmap.height);
 
         // Level parallax backgrounds.
-        const levelProgress = (this.player.pos[0] - PLAYER_WIDTH / 2) / (this.level.width() - PLAYER_WIDTH);
+        const levelProgress = (((this.player.pos[0] - PLAYER_WIDTH / 2) / (this.level.width() - PLAYER_WIDTH)) - 0.5) * 2;
         for (let i = this.level.backgrounds.length - 1; i >= 0; i--) {
             const background = this.level.backgrounds[i];
             ctx.drawImage(
-                background.bitmap,
-                offset[0] + Math.floor((this.level.bitmap.width - background.bitmap.width) * levelProgress),
+                background.image.bitmap,
+                offset[0] + (this.level.bitmap.width / 2) - (background.image.bitmap.width / 2) - levelProgress * background.moveFactor,
                 offset[1],
             );
         }
@@ -731,21 +734,29 @@ class ZenithGame {
                 Math.floor((canvasMouseY - gameOffset[1]) / TILE_WIDTH),
             ];
 
+            if (
+                this.editModeCursorPosition[0] < 0 ||
+                this.editModeCursorPosition[0] >= this.level.width() ||
+                this.editModeCursorPosition[1] < 0 ||
+                this.editModeCursorPosition[1] >= this.level.height()
+            ) {
+                this.editModeCursorPosition = null;
+            } else {
+                const currentTile = this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]];
+                let newTile = currentTile;
+                if (canvasMouseButtons & 1) {
+                    newTile = editModeSelectedTile;
+                } else if (canvasMouseButtons & 2) {
+                    newTile = null;
+                }
 
-            const currentTile = this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]];
-            let newTile = currentTile;
-            if (canvasMouseButtons & 1) {
-                newTile = editModeSelectedTile;
-            } else if (canvasMouseButtons & 2) {
-                newTile = null;
-            }
-
-            if (newTile !== this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]]) {
-                this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]] = newTile;
-                // TODO: fix all boxes?
-                fixBoxEdges(this.level, DEFAULT_BOX);
-                // TODO: implement some method to re-render only the changed tiles on top of the existing bitmap.
-                this.level.render(true);
+                if (newTile !== this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]]) {
+                    this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]] = newTile;
+                    // TODO: fix all boxes?
+                    fixBoxEdges(this.level, DEFAULT_BOX);
+                    // TODO: implement some method to re-render only the changed tiles on top of the existing bitmap.
+                    this.level.render(true);
+                }
             }
         } else {
             this.editModeCursorPosition = null;
