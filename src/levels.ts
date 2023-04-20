@@ -59,7 +59,7 @@ const fillBox = (level: Level, box: Box, x: number, y: number, width: number, he
     }
 };
 
-const fixBoxEdges = (level: Level, box: Box) => {
+export const fixBoxEdges = (level: Level, box: Box) => {
     const boxTiles = new Set(Object.values(box));
     const coordsUsingBox = new Set(level.columns.flatMap(
         (column, x) => column.map((tile, y) => boxTiles.has(tile) ? level.tileId(x, y) : null).filter(Boolean)

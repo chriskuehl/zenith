@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, MouseEvent, KeyboardEvent } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { images } from './assets';
 import "./css/main.css";
 import JoystickCircleImage from './img/joystick.svg';
 import { TILE_WIDTH, TILE_HEIGHT, TRANSPARENCY_TILES, DEFAULT_BACKGROUND, DEFAULT_BOX, Tile, Box, TileType } from './tiles';
-import { createDefaultLevel } from './levels';
+import { createDefaultLevel, fixBoxEdges } from './levels';
 
 const TICKS_PER_SECOND = 360;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -30,6 +30,18 @@ const PLAYER_MOVEMENT_STEP = 1 / TILE_WIDTH; // Tiles.
 // but ruins regular jump-land-jump-dash a lot of the time.
 const PLAYER_RESTORE_DASH_DELAY = 0; // Ticks.
 
+const KEYBOARD_KEYS_LEFT = new Set(['KeyA', 'ArrowLeft']);
+const KEYBOARD_KEYS_RIGHT = new Set(['KeyD', 'ArrowRight']);
+const KEYBOARD_KEYS_UP = new Set(['KeyW', 'ArrowUp']);
+const KEYBOARD_KEYS_DOWN = new Set(['KeyS', 'ArrowDown']);
+const KEYBOARD_KEYS_JUMP = new Set(['Enter', 'Space']);
+const KEYBOARD_KEYS_DASH = new Set(['Shift', 'ShiftLeft', 'ShiftRight']);
+
+let canvasMouseX: number | null = null;
+let canvasMouseY: number | null = null;
+let canvasMouseButtons = 0;
+const canvasKeysDown = new Set<String>();
+
 type ControllerState = {
     name: string;
     leftAxis: [number, number];
@@ -51,6 +63,15 @@ type ControllerState = {
         x: boolean,
         y: boolean,
     };
+};
+
+type InputState = {
+    left: boolean;
+    down: boolean;
+    right: boolean;
+    up: boolean;
+    jump: boolean;
+    dash: boolean;
 };
 
 const PlayerStatDisplay: React.FC<{player: Player}> = ({player}) => {
@@ -126,37 +147,71 @@ const ZenithApp: React.FC<ZenithAppProps> = (props) => {
         }
     }, [contentRef]);
 
-    return <div className="zenith">
+    const onMouseMove = (e: MouseEvent) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        canvasMouseX = e.clientX - rect.left;
+        canvasMouseY = e.clientY - rect.top;
+        canvasMouseButtons = e.buttons;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+        canvasKeysDown.add(e.code);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+        canvasKeysDown.delete(e.code);
+    };
+
+    const onBlur = () => {
+        canvasKeysDown.clear();
+    };
+
+    return <div className="zenith" tabIndex={-1} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur}>
         <div className="top-bar">
             <p>FPS: {props.fps} Ticks/Frame: {props.ticksPerFrame}</p>
             <PlayerStatDisplay player={props.player} />
             <ControllerDisplay state={props.controllerState} />
         </div>
         <div className="content" ref={contentRef}>
-            <canvas width={canvasSize[0]} height={canvasSize[1]} id="game-canvas" />
+            <canvas
+                width={canvasSize[0]}
+                height={canvasSize[1]}
+                id="game-canvas"
+                onMouseMove={onMouseMove}
+                onContextMenu={(e) => {e.preventDefault(); return false;}}
+            />
         </div>
     </div>;
 };
 
-const vecxy = (state: ControllerState): [number, number] => {
+const vecxy = (state: InputState): [number, number] => {
     let vecx = 0;
     let vecy = 0;
 
-    if (state.dpad.left || state.joystick.left) {
+    if (state.left) {
         vecx = -1;
-    } else if (state.dpad.right || state.joystick.right) {
+    } else if (state.right) {
         vecx = 1;
     }
 
-    if (state.dpad.up || state.joystick.up) {
+    if (state.up) {
         vecy = -1;
-    } else if (state.dpad.down || state.joystick.down) {
+    } else if (state.down) {
         vecy = 1;
     }
 
     const dist = (vecx ** 2 + vecy ** 2) ** 0.5;
     return [vecx / dist, vecy / dist];
 };
+
+const intersection = <T,>(s1: Set<T>, s2: Set<T>): boolean => {
+    for (const el of s1) {
+        if (s2.has(el)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 enum PlayerDirection {
     Left,
@@ -189,12 +244,15 @@ class ZenithGame {
     canvasCtx: CanvasRenderingContext2D | null = null;
     player: Player = new Player();
     level = createDefaultLevel();
+    editModeEnabled = true;
+    editModeCursorPosition: [number, number] | null = null;
 
     constructor(container: HTMLDivElement) {
         this.root = createRoot(container);
     }
 
     run() {
+        this.renderUI();
         this.loop();
     }
 
@@ -303,11 +361,9 @@ class ZenithGame {
         ];
     }
 
-    renderGame() {
+    renderGame(offset: [number, number]) {
         const ctx = this.canvasCtx!;
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        const offset = this.gameOffset();
 
         // Level.
         // TODO: add logic to only draw the portion of the level which is visible.
@@ -355,6 +411,17 @@ class ZenithGame {
             );
         });
         ctx.globalAlpha = 1;
+
+        // Edit mode
+        if (this.editModeEnabled && this.editModeCursorPosition) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+            ctx.fillRect(
+                offset[0] + TILE_WIDTH * this.editModeCursorPosition[0],
+                offset[1] + TILE_HEIGHT * this.editModeCursorPosition[1],
+                TILE_WIDTH,
+                TILE_HEIGHT,
+            );
+        }
     }
 
     handlePlayerMovement() {
@@ -427,8 +494,41 @@ class ZenithGame {
         }
     }
 
+    renderUI(controllerState: ControllerState | null = null) {
+        this.root.render(<ZenithApp
+            controllerState={controllerState}
+            fps={this.fps}
+            ticksPerFrame={this.ticksPerFrame}
+            player={this.player}
+        />);
+    }
+
+    getInputState(ctrlr: ControllerState | null): InputState {
+        return {
+            left: (ctrlr && (ctrlr.joystick.left || ctrlr.dpad.left)) || intersection(KEYBOARD_KEYS_LEFT, canvasKeysDown),
+            down: (ctrlr && (ctrlr.joystick.down || ctrlr.dpad.down)) || intersection(KEYBOARD_KEYS_DOWN, canvasKeysDown),
+            right: (ctrlr && (ctrlr.joystick.right || ctrlr.dpad.right)) || intersection(KEYBOARD_KEYS_RIGHT, canvasKeysDown),
+            up: (ctrlr && (ctrlr.joystick.up || ctrlr.dpad.up)) || intersection(KEYBOARD_KEYS_UP, canvasKeysDown),
+            jump: (ctrlr && ctrlr.buttons.a) || intersection(KEYBOARD_KEYS_JUMP, canvasKeysDown),
+            dash: (ctrlr && (ctrlr.buttons.x || ctrlr.buttons.b)) || intersection(KEYBOARD_KEYS_DASH, canvasKeysDown),
+        };
+    }
+
     loop() {
         window.requestAnimationFrame(this.loop.bind(this));
+
+        if (this.canvasCtx === null) {
+            const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
+            console.log("cvs:", canvas);
+            if (canvas !== null) {
+                this.canvasCtx = canvas.getContext('2d');
+            } else {
+                // No canvas yet, wait until it's rendered.
+                return;
+            }
+        }
+
+        const gameOffset = this.gameOffset();
 
         // FPS logic.
         const now = window.performance.now();
@@ -447,43 +547,43 @@ class ZenithGame {
         for (let tick = 0; tick < this.ticksPerFrame; tick++) {
             this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
 
-            if (controllerState) {
-                if (this.player.dashTicksRemaining === 0) {
-                    const [vecx, vecy] = vecxy(controllerState);
-                    if (vecx < 0) {
-                        this.player.direction = PlayerDirection.Left;
-                        this.player.velocity[0] = Math.max(-PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] - PLAYER_WALK_ACCEL);
-                    } else if (vecx > 0) {
-                        this.player.direction = PlayerDirection.Right;
-                        this.player.velocity[0] = Math.min(PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] + PLAYER_WALK_ACCEL);
-                    }
+            const inputState = this.getInputState(controllerState);
 
-                    // Dash.
-                    if (
-                        (controllerState.buttons.x || controllerState.buttons.b) &&
-                        this.player.hasDashAbility &&
-                        this.player.dashTicksRemaining === 0
-                    ) {
-                        const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
-                        this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
-                        this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
-                        this.player.hasDashAbility = false;
-                        this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
-                        this.player.ticksTouchingFloor = 0;
-                    }
+            if (this.player.dashTicksRemaining === 0) {
+                const [vecx, vecy] = vecxy(inputState);
+                if (vecx < 0) {
+                    this.player.direction = PlayerDirection.Left;
+                    this.player.velocity[0] = Math.max(-PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] - PLAYER_WALK_ACCEL);
+                } else if (vecx > 0) {
+                    this.player.direction = PlayerDirection.Right;
+                    this.player.velocity[0] = Math.min(PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] + PLAYER_WALK_ACCEL);
                 }
 
-                // Jump.
-                if (controllerState.buttons.a) {
-                    if (this.player.ticksTouchingFloor > 0) {
-                        this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
-                    } else if (this.player.hitLeftWall) {
-                        this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
-                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
-                    } else if (this.player.hitRightWall) {
-                        this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
-                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
-                    }
+                // Dash.
+                if (
+                    inputState.dash &&
+                    this.player.hasDashAbility &&
+                    this.player.dashTicksRemaining === 0
+                ) {
+                    const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
+                    this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
+                    this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
+                    this.player.hasDashAbility = false;
+                    this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
+                    this.player.ticksTouchingFloor = 0;
+                }
+            }
+
+            // Jump.
+            if (inputState.jump) {
+                if (this.player.ticksTouchingFloor > 0) {
+                    this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
+                } else if (this.player.hitLeftWall) {
+                    this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
+                    this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                } else if (this.player.hitRightWall) {
+                    this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
+                    this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
                 }
             }
 
@@ -521,25 +621,39 @@ class ZenithGame {
             this.handlePlayerMovement();
         }
 
-        // Game render.
-        if (this.canvasCtx === null) {
-            const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
-            if (canvas !== null) {
-                this.canvasCtx = canvas.getContext('2d');
+        // Edit mode.
+        if (this.editModeEnabled && canvasMouseX !== null && canvasMouseY !== null) {
+            this.editModeCursorPosition = [
+                Math.floor((canvasMouseX - gameOffset[0]) / TILE_WIDTH),
+                Math.floor((canvasMouseY - gameOffset[1]) / TILE_WIDTH),
+            ];
+
+
+            let newTile = null;
+            const box = DEFAULT_BOX;
+            if (canvasMouseButtons & 1) {
+                newTile = box.fill;
+            } else if (canvasMouseButtons & 2) {
+                newTile = DEFAULT_BACKGROUND;
             }
+
+            if (newTile !== null) {
+                this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]] = newTile;
+                fixBoxEdges(this.level, box);
+                // TODO: implement some method to re-render only the changed tiles on top of the existing bitmap.
+                this.level.render();
+            }
+        } else {
+            this.editModeCursorPosition = null;
         }
 
+        // Game render.
         if (this.canvasCtx !== null) {
-            this.renderGame();
+            this.renderGame(gameOffset);
         }
 
         // UI render.
-        this.root.render(<ZenithApp
-            controllerState={controllerState}
-            fps={this.fps}
-            ticksPerFrame={this.ticksPerFrame}
-            player={this.player}
-        />);
+        this.renderUI(controllerState);
     }
 }
 
