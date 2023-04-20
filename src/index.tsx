@@ -1,9 +1,19 @@
-import React, { useState, useEffect, useRef, MouseEvent, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useRef, MouseEvent, KeyboardEvent, ChangeEvent } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { images } from './assets';
 import "./css/main.css";
 import JoystickCircleImage from './img/joystick.svg';
-import { TILE_WIDTH, TILE_HEIGHT, TRANSPARENCY_TILES, DEFAULT_BACKGROUND, DEFAULT_BOX, Tile, Box, TileType } from './tiles';
+import {
+    Tile,
+    Box,
+    TileType,
+    TILE_WIDTH,
+    TILE_HEIGHT,
+    DEFAULT_BOX,
+    HIDDEN_WALL,
+    HIDDEN_DEATH,
+    HIDDEN_JUMP,
+} from './tiles';
 import { createDefaultLevel, fixBoxEdges } from './levels';
 
 const TICKS_PER_SECOND = 360;
@@ -37,6 +47,15 @@ const KEYBOARD_KEYS_DOWN = new Set(['KeyS', 'ArrowDown']);
 const KEYBOARD_KEYS_JUMP = new Set(['Enter', 'Space']);
 const KEYBOARD_KEYS_DASH = new Set(['Shift', 'ShiftLeft', 'ShiftRight']);
 
+const LEVEL_EDIT_OPTIONS: [string, Tile][] = [
+    ["Box 1", DEFAULT_BOX.fill],
+    ["Hidden wall", HIDDEN_WALL],
+    ["Hidden death", HIDDEN_DEATH],
+    ["Hidden jump", HIDDEN_JUMP],
+];
+
+let editModeEnabled = false;
+let editModeSelectedTile = DEFAULT_BOX.fill;
 let canvasMouseX: number | null = null;
 let canvasMouseY: number | null = null;
 let canvasMouseButtons = 0;
@@ -74,7 +93,7 @@ type InputState = {
     dash: boolean;
 };
 
-const PlayerStatDisplay: React.FC<{player: Player}> = ({player}) => {
+const StatWidget: React.FC<{player: Player, fps: number, ticksPerFrame: number}> = ({player, fps, ticksPerFrame}) => {
     let hasDash;
     if (player.dashTicksRemaining > 0) {
         hasDash = <span className="dash dashing">Dashing</span>;
@@ -84,11 +103,13 @@ const PlayerStatDisplay: React.FC<{player: Player}> = ({player}) => {
         hasDash = <span className="dash no-dash">No Dash</span>;
     }
 
-    return <p className="player-stats">
-        Pos: ({player.pos[0].toFixed(1)}, {player.pos[1].toFixed(1)})
-        Velocity: ({player.velocity[0].toFixed(1)}, {player.velocity[1].toFixed(1)})
+    return <div className="player-stats top-bar-child">
+        FPS: {fps}<br />
+        Ticks/Frame: {ticksPerFrame}<br />
+        Pos: ({player.pos[0].toFixed(1)}, {player.pos[1].toFixed(1)})<br />
+        Velocity: ({player.velocity[0].toFixed(1)}, {player.velocity[1].toFixed(1)})<br />
         Dash: {hasDash}
-    </p>;
+    </div>;
 };
 
 const JoystickCircle: React.FC<{axis: [number, number]}> = ({axis}) => {
@@ -101,27 +122,62 @@ const JoystickCircle: React.FC<{axis: [number, number]}> = ({axis}) => {
     </div>;
 };
 
-const ControllerDisplay: React.FC<{state: ControllerState | null}> = ({state}) => {
-    return <>
-        <p>Controller state:</p>
-        <div className="controller-display">
-            <JoystickCircle axis={state ? state.leftAxis : [0, 0]} />
+const ControllerWidget: React.FC<{state: ControllerState | null}> = ({state}) => {
+    return <div className="controller-display top-bar-child">
+        <JoystickCircle axis={state ? state.leftAxis : [0, 0]} />
+        <ul>
+            {state !== null ?
+                <>
+                    <li>Name: {state.name}</li>
+                    <li>Left Axis: {state.leftAxis[0].toFixed(2)} {state.leftAxis[1].toFixed(2)}</li>
+                    <li>Joystick: {JSON.stringify(state.joystick)}</li>
+                    <li>Dpad: {JSON.stringify(state.dpad)}</li>
+                    <li>Buttons: {JSON.stringify(state.buttons)}</li>
+                </>
+                :
+                <li>No controller connected. Connect a controller and press any button.</li>
+            }
+        </ul>
+    </div>;
+};
+
+const EditModeWidget: React.FC<{}> = () => {
+    const [enabled, setEnabled] = useState(editModeEnabled);
+    const [selectedTile, setSelectedTile] = useState(editModeSelectedTile);
+
+    useEffect(
+        () => { editModeEnabled = enabled },
+        [enabled],
+    );
+
+    useEffect(
+        () => { editModeSelectedTile = selectedTile },
+        [selectedTile],
+    );
+
+    return <div className="edit-mode top-bar-child">
+        <div>
+            <p>
+                <label>
+                    <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Edit Mode
+                </label>
+            </p>
             <ul>
-                {state !== null ?
-                    <>
-                        <li>Name: {state.name}</li>
-                        <li>Left Axis: {state.leftAxis[0].toFixed(2)} {state.leftAxis[1].toFixed(2)}</li>
-                        <li>Joystick: {JSON.stringify(state.joystick)}</li>
-                        <li>Dpad: {JSON.stringify(state.dpad)}</li>
-                        <li>Buttons: {JSON.stringify(state.buttons)}</li>
-                    </>
-                    :
-                    <li>No controller connected. Connect a controller and press any button.</li>
-                }
+                {LEVEL_EDIT_OPTIONS.map(([label, tile], i) => <li key={i}>
+                    <label>
+                        <input type="radio" checked={selectedTile === tile} onChange={(e) => setSelectedTile(tile)} />
+                        {label}
+                    </label>
+                </li>)}
             </ul>
         </div>
-    </>;
+        <div>
+            <p><button>Reset Level</button></p>
+            <p><button>Export Level</button></p>
+        </div>
+    </div>;
 };
+
 
 type ZenithAppProps = {
     fps: number;
@@ -168,9 +224,9 @@ const ZenithApp: React.FC<ZenithAppProps> = (props) => {
 
     return <div className="zenith" tabIndex={-1} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={onBlur}>
         <div className="top-bar">
-            <p>FPS: {props.fps} Ticks/Frame: {props.ticksPerFrame}</p>
-            <PlayerStatDisplay player={props.player} />
-            <ControllerDisplay state={props.controllerState} />
+            <ControllerWidget state={props.controllerState} />
+            <StatWidget fps={props.fps} ticksPerFrame={props.ticksPerFrame} player={props.player} />
+            <EditModeWidget />
         </div>
         <div className="content" ref={contentRef}>
             <canvas
@@ -244,7 +300,7 @@ class ZenithGame {
     canvasCtx: CanvasRenderingContext2D | null = null;
     player: Player = new Player();
     level = createDefaultLevel();
-    editModeEnabled = true;
+    editModeEnabled = false;
     editModeCursorPosition: [number, number] | null = null;
 
     constructor(container: HTMLDivElement) {
@@ -365,23 +421,28 @@ class ZenithGame {
         const ctx = this.canvasCtx!;
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        // Level.
+        // Level start.
+        ctx.fillStyle = this.level.backgroundColor;
+        ctx.fillRect(offset[0], offset[1], this.level.bitmap.width, this.level.bitmap.height);
+
+        // Level parallax backgrounds.
+        const levelProgress = (this.player.pos[0] - PLAYER_WIDTH / 2) / (this.level.width() - PLAYER_WIDTH);
+        for (let i = this.level.backgrounds.length - 1; i >= 0; i--) {
+            const background = this.level.backgrounds[i];
+            ctx.drawImage(
+                background.bitmap,
+                offset[0] + Math.floor((this.level.bitmap.width - background.bitmap.width) * levelProgress),
+                offset[1],
+            );
+        }
+
+        // Level tiles.
         // TODO: add logic to only draw the portion of the level which is visible.
-        ctx.drawImage(
-            this.level.bitmap,
-            0,
-            0,
-            TILE_WIDTH * this.level.width(),
-            TILE_HEIGHT * this.level.height(),
-            offset[0],
-            offset[1],
-            TILE_WIDTH * this.level.width(),
-            TILE_HEIGHT * this.level.height(),
-        );
+        ctx.drawImage(this.level.bitmap, offset[0], offset[1]);
 
         // Player.
         ctx.drawImage(
-            images.player.img,
+            images.player.bitmap,
             // TODO: replace with ImageBitmap sprites.
             this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH,
             this.player.hasDashAbility ? 0 : TILE_HEIGHT * PLAYER_HEIGHT,
@@ -398,7 +459,7 @@ class ZenithGame {
             const [direction, x, y, opacity] = pos;
             ctx.globalAlpha = Math.max(0, opacity);
             ctx.drawImage(
-                images.player.img,
+                images.player.bitmap,
                 // TODO: replace with ImageBitmap sprites.
                 direction === PlayerDirection.Left? 0 : TILE_WIDTH * PLAYER_WIDTH,
                 2 * TILE_HEIGHT * PLAYER_HEIGHT,
@@ -413,14 +474,21 @@ class ZenithGame {
         ctx.globalAlpha = 1;
 
         // Edit mode
-        if (this.editModeEnabled && this.editModeCursorPosition) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-            ctx.fillRect(
-                offset[0] + TILE_WIDTH * this.editModeCursorPosition[0],
-                offset[1] + TILE_HEIGHT * this.editModeCursorPosition[1],
-                TILE_WIDTH,
-                TILE_HEIGHT,
-            );
+        if (this.editModeEnabled) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.font = "32px sans-serif";
+            ctx.fillText("Edit mode enabled", 10, 42);
+            ctx.font = "16px sans-serif";
+            ctx.fillText("Left click to place, right click to erase", 10, 62);
+            if (this.editModeCursorPosition) {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.fillRect(
+                    offset[0] + TILE_WIDTH * this.editModeCursorPosition[0],
+                    offset[1] + TILE_HEIGHT * this.editModeCursorPosition[1],
+                    TILE_WIDTH,
+                    TILE_HEIGHT,
+                );
+            }
         }
     }
 
@@ -434,7 +502,12 @@ class ZenithGame {
             if (x < 0 || x >= this.level.width() || y < 0 || y >= this.level.height()) {
                 return TileType.Blocking;
             } else {
-                return this.level.columns[Math.floor(x)][Math.floor(y)].type;
+                const tile = this.level.columns[Math.floor(x)][Math.floor(y)];
+                if (tile !== null) {
+                    return tile.type;
+                } else {
+                    return TileType.None;
+                }
             }
         }
 
@@ -622,26 +695,36 @@ class ZenithGame {
         }
 
         // Edit mode.
+        if (editModeEnabled && !this.editModeEnabled) {
+            this.editModeEnabled = true;
+            this.level.render(true);
+        } else if (!editModeEnabled && this.editModeEnabled) {
+            this.editModeEnabled = false;
+            this.level.render(false);
+        }
+
         if (this.editModeEnabled && canvasMouseX !== null && canvasMouseY !== null) {
+            // TODO: ensure this is in the level.
             this.editModeCursorPosition = [
                 Math.floor((canvasMouseX - gameOffset[0]) / TILE_WIDTH),
                 Math.floor((canvasMouseY - gameOffset[1]) / TILE_WIDTH),
             ];
 
 
-            let newTile = null;
-            const box = DEFAULT_BOX;
+            const currentTile = this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]];
+            let newTile = currentTile;
             if (canvasMouseButtons & 1) {
-                newTile = box.fill;
+                newTile = editModeSelectedTile;
             } else if (canvasMouseButtons & 2) {
-                newTile = DEFAULT_BACKGROUND;
+                newTile = null;
             }
 
-            if (newTile !== null) {
+            if (newTile !== this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]]) {
                 this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]] = newTile;
-                fixBoxEdges(this.level, box);
+                // TODO: fix all boxes?
+                fixBoxEdges(this.level, DEFAULT_BOX);
                 // TODO: implement some method to re-render only the changed tiles on top of the existing bitmap.
-                this.level.render();
+                this.level.render(true);
             }
         } else {
             this.editModeCursorPosition = null;
@@ -658,7 +741,7 @@ class ZenithGame {
 }
 
 const waitForAssetsToLoad = async () => {
-    await Promise.all(Object.values(images).map(image => image.loaded));
+    await Promise.all(Object.values(images).map(image => image.load));
 };
 
 

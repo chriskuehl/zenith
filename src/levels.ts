@@ -1,9 +1,15 @@
-import { Tile, TileType, Box, TILE_WIDTH, TILE_HEIGHT, DEFAULT_BACKGROUND, DEFAULT_BOX, TRANSPARENCY_TILES } from './tiles';
-import { images } from './assets';
+import { Tile, TileType, Box, TILE_WIDTH, TILE_HEIGHT, DEFAULT_BOX } from './tiles';
+import { AwaitableImage, images } from './assets';
+
+type MaybeTile = Tile | null;
 
 export class Level {
-    columns: Tile[][];
+    backgroundColor: string = 'pink';
+    columns: MaybeTile[][];
     bitmap: ImageBitmap;
+
+    // Parallax background images, closest first.
+    backgrounds: AwaitableImage[] = [];
 
     constructor(columns: Tile[][]) {
         this.columns = columns;
@@ -22,22 +28,25 @@ export class Level {
         return x * this.height() + y;
     }
 
-    render() {
+    render(showInvisible: boolean = false) {
         const canvas = new OffscreenCanvas(this.width() * TILE_WIDTH, this.height() * TILE_HEIGHT);
         const ctx = canvas.getContext('2d')!;
         for (let x = 0; x < this.width(); x++) {
             for (let y = 0; y < this.height(); y++) {
-                ctx.drawImage(
-                    images.tiles.img,
-                    TILE_WIDTH * this.columns[x][y].offset[0],
-                    TILE_HEIGHT * this.columns[x][y].offset[1],
-                    TILE_WIDTH,
-                    TILE_HEIGHT,
-                    x * TILE_WIDTH,
-                    y * TILE_HEIGHT,
-                    TILE_WIDTH,
-                    TILE_HEIGHT,
-                );
+                const tile = this.columns[x][y];
+                if (tile !== null && (tile.visible || showInvisible)) {
+                    ctx.drawImage(
+                        images.tiles.bitmap,
+                        TILE_WIDTH * tile.offset[0],
+                        TILE_HEIGHT * tile.offset[1],
+                        TILE_WIDTH,
+                        TILE_HEIGHT,
+                        x * TILE_WIDTH,
+                        y * TILE_HEIGHT,
+                        TILE_WIDTH,
+                        TILE_HEIGHT,
+                    );
+                }
             }
         }
         this.bitmap = canvas.transferToImageBitmap();
@@ -45,7 +54,7 @@ export class Level {
 
     static createEmpty(width: number, height: number): Level {
         const columns = Array(width).fill(null).map(() => {
-            return Array(height).fill(DEFAULT_BACKGROUND);
+            return Array(height).fill(null);
         });
         return new Level(columns);
     }
@@ -60,9 +69,9 @@ const fillBox = (level: Level, box: Box, x: number, y: number, width: number, he
 };
 
 export const fixBoxEdges = (level: Level, box: Box) => {
-    const boxTiles = new Set(Object.values(box));
+    const boxTiles: Set<Tile> = new Set(Object.values(box));
     const coordsUsingBox = new Set(level.columns.flatMap(
-        (column, x) => column.map((tile, y) => boxTiles.has(tile) ? level.tileId(x, y) : null).filter(Boolean)
+        (column, x) => column.map((tile, y) => tile !== null && boxTiles.has(tile) ? level.tileId(x, y) : null).filter(Boolean)
     ));
     const isBoxTile = (x: number, y: number) => {
         if (x < 0 || x >= level.width() || y < 0 || y >= level.height()) {
@@ -74,7 +83,7 @@ export const fixBoxEdges = (level: Level, box: Box) => {
 
     for (let x = 0; x < level.width(); x++) {
         for (let y = 0; y < level.height(); y++) {
-            if (boxTiles.has(level.columns[x][y])) {
+            if (isBoxTile(x, y)) {
                 let tile;
 
                 if (!isBoxTile(x - 1, y)) {  // Left
@@ -119,6 +128,15 @@ export const fixBoxEdges = (level: Level, box: Box) => {
 
 export const createDefaultLevel = () => {
     const level = Level.createEmpty(200, 50);
+    level.backgroundColor = 'rgb(50, 50, 50)';
+    level.backgrounds = [
+        images.defaultLevelParallaxX,
+        images.defaultLevelParallax0,
+        images.defaultLevelParallax1,
+        images.defaultLevelParallax2,
+        //images.defaultLevelParallax3,
+    ];
+    console.log("level:", level);
 
     fillBox(level, DEFAULT_BOX, 20, 40, 14, 3);
     fillBox(level, DEFAULT_BOX, 24, 36, 6, 10);

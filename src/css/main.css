@@ -16,7 +16,16 @@ body {
 }
 
 .top-bar {
-    background-color: yellow;
+    background-color: #444;
+    padding: 8px;
+    display: flex;
+    column-gap: 8px;
+}
+
+.top-bar-child {
+    background-color: #888;;
+    border-radius: 10px;
+    padding: 5px;
 }
 
 .content {
@@ -56,13 +65,17 @@ body {
 }
 
 .player-stats .dash.has-dash {
-    color: green;
+    color: #aaa;
 }
 
 .player-stats .dash.no-dash {
-    color: red;
+    color: #333;
 }
 
 .player-stats .dash.dashing {
-    color: blue;
+    color: #666;
+}
+
+.edit-mode {
+    display: flex;
 }
