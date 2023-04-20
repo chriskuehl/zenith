@@ -34,6 +34,8 @@ const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
 const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
 const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELOCITY ** 2)) ** 0.5; // Tiles per tick.
 const PLAYER_MOVEMENT_STEP = 1 / TILE_WIDTH; // Tiles.
+const PLAYER_DEATH_WIPE_PROGRESS = 0.0015; // Progress (out of 1) per tick.
+const PLAYER_START_POS = [20, 2]; // Tiles.
 // Time to restore dash ability when standing on the floor. Used to make
 // wavedashing more challenging.
 //
@@ -281,7 +283,7 @@ enum PlayerDirection {
 type DashPosition = [PlayerDirection, number, number, number];
 
 class Player {
-    pos = [20, 2];
+    pos = PLAYER_START_POS;
     velocity = [0, 0];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
@@ -292,6 +294,8 @@ class Player {
     hitRightWall = false;
     hitCeiling = false;
     hitFloor = false;
+    dead = false;
+    deathWipeProgress: number = 0;
 };
 
 class ZenithGame {
@@ -515,9 +519,38 @@ class ZenithGame {
                 );
             }
         }
+
+        // Death wipe.
+        if (this.player.dead) {
+            let wipeSize;
+
+            if (this.player.deathWipeProgress < 0.3) {
+                wipeSize = 1 - (this.player.deathWipeProgress * 3.2);
+            } else if (this.player.deathWipeProgress < 0.8) {
+                wipeSize = 0.05;
+            } else {
+                wipeSize = Math.max(0, 0.05 * (1 - (this.player.deathWipeProgress - 0.8) / 0.1));
+            }
+
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(
+                offset[0] + this.player.pos[0] * TILE_WIDTH,
+                offset[1] + this.player.pos[1] * TILE_WIDTH,
+                Math.max(ctx.canvas.width, ctx.canvas.height) * wipeSize,
+                0,
+                2 * Math.PI,
+            );
+            ctx.rect(ctx.canvas.width, 0, -ctx.canvas.width, ctx.canvas.height);
+            ctx.fill();
+        }
     }
 
     handlePlayerMovement() {
+        if (this.player.dead) {
+            return;
+        }
+
         const [vecx, vecy] = this.player.velocity;
         const dist = (vecx ** 2 + vecy ** 2) ** 0.5;
         const steps = Math.ceil(dist / PLAYER_MOVEMENT_STEP);
@@ -643,6 +676,14 @@ class ZenithGame {
 
         for (let tick = 0; tick < this.ticksPerFrame; tick++) {
             this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
+
+            if (this.player.dead) {
+                this.player.deathWipeProgress = Math.min(1, this.player.deathWipeProgress += PLAYER_DEATH_WIPE_PROGRESS);
+
+                if (this.player.deathWipeProgress >= 1) {
+                    this.player = new Player();
+                }
+            }
 
             const inputState = this.getInputState(controllerState);
 
