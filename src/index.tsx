@@ -11,19 +11,18 @@ const TICK_MS = 1000 / TICKS_PER_SECOND;
 
 const PLAYER_WIDTH = 2;
 const PLAYER_HEIGHT = 3;
-const PLAYER_WALK_ACCEL = 0.02;  // Tiles per tick per tick.
-const PLAYER_DASH_VELOCITY = 1;  // Tiles per tick.
-// TODO: remove this if we can make horiz/vertical deccel more consistent.
-const PLAYER_DASH_VELOCITY_VERTICAL_MULTIPLIER = 0.5; // Multiplier on vertical velocity.
+const PLAYER_WALK_ACCEL = 0.015;  // Tiles per tick per tick.
+const PLAYER_MAX_WALK_VELOCITY = 0.1; // Tiles per tick.
+const PLAYER_FRICTION_ACCEL = 0.003; // Tiles per tick per tick.
+const PLAYER_DASH_VELOCITY = 0.5;  // Tiles per tick.
 // TODO: rename this if we decide not to restore hang time.
 const PLAYER_DASH_HANG_TIME = 30; // Ticks.
 const PLAYER_DASH_CONTRAIL_OPACITY = 0.8; // Opacity.
 const PLAYER_DASH_CONTRAIL_FADE = 0.01; // Opacity decrease per tick.
-const PLAYER_AIR_FRICTION = 0.9; // Horizontal acceleration multiplier per tick.
 const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
 const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
 const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELOCITY ** 2)) ** 0.5; // Tiles per tick.
-const PLAYER_MOVEMENT_STEP = 0.1; // Tiles.
+const PLAYER_MOVEMENT_STEP = 1 / TILE_WIDTH; // Tiles.
 // Time to restore dash ability when standing on the floor. Used to make
 // wavedashing more challenging.
 //
@@ -327,6 +326,7 @@ class ZenithGame {
         // Player.
         ctx.drawImage(
             images.player.img,
+            // TODO: replace with ImageBitmap sprites.
             this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH,
             this.player.hasDashAbility ? 0 : TILE_HEIGHT * PLAYER_HEIGHT,
             TILE_WIDTH * PLAYER_WIDTH,
@@ -343,6 +343,7 @@ class ZenithGame {
             ctx.globalAlpha = Math.max(0, opacity);
             ctx.drawImage(
                 images.player.img,
+                // TODO: replace with ImageBitmap sprites.
                 direction === PlayerDirection.Left? 0 : TILE_WIDTH * PLAYER_WIDTH,
                 2 * TILE_HEIGHT * PLAYER_HEIGHT,
                 TILE_WIDTH * PLAYER_WIDTH,
@@ -424,27 +425,6 @@ class ZenithGame {
         if (this.player.hitCeiling && this.player.velocity[1] < 0) {
             this.player.velocity[1] = 0;
         }
-
-        return;
-
-        this.player.pos[0] = Math.max(PLAYER_WIDTH/2, Math.min(this.level.width() - PLAYER_WIDTH/2, this.player.pos[0] + this.player.velocity[0]));
-        this.player.pos[1] = Math.max(PLAYER_HEIGHT, Math.min(this.level.height(), this.player.pos[1] + this.player.velocity[1]));
-
-        if (Math.abs(this.player.velocity[0]) < 0.001 || this.player.pos[0] === PLAYER_WIDTH/2 || this.player.pos[0] === this.level.width() - PLAYER_WIDTH/2) {
-            this.player.velocity[0] = 0;
-        }
-
-        if (this.player.pos[1] === this.level.height()) {
-            this.player.velocity[1] = 0;
-            this.player.ticksTouchingFloor++;
-            if (this.player.ticksTouchingFloor > PLAYER_RESTORE_DASH_DELAY) {
-                this.player.hasDashAbility = true;
-            }
-        }
-
-        if (this.player.pos[1] === PLAYER_HEIGHT) {
-            this.player.velocity[1] = 0;
-        }
     }
 
     loop() {
@@ -468,13 +448,29 @@ class ZenithGame {
             this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
 
             if (controllerState) {
-                const [vecx, vecy] = vecxy(controllerState);
-                if (vecx < 0) {
-                    this.player.direction = PlayerDirection.Left;
-                    this.player.velocity[0] -= PLAYER_WALK_ACCEL;
-                } else if (vecx > 0) {
-                    this.player.direction = PlayerDirection.Right;
-                    this.player.velocity[0] += PLAYER_WALK_ACCEL;
+                if (this.player.dashTicksRemaining === 0) {
+                    const [vecx, vecy] = vecxy(controllerState);
+                    if (vecx < 0) {
+                        this.player.direction = PlayerDirection.Left;
+                        this.player.velocity[0] = Math.max(-PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] - PLAYER_WALK_ACCEL);
+                    } else if (vecx > 0) {
+                        this.player.direction = PlayerDirection.Right;
+                        this.player.velocity[0] = Math.min(PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] + PLAYER_WALK_ACCEL);
+                    }
+
+                    // Dash.
+                    if (
+                        (controllerState.buttons.x || controllerState.buttons.b) &&
+                        this.player.hasDashAbility &&
+                        this.player.dashTicksRemaining === 0
+                    ) {
+                        const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
+                        this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
+                        this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
+                        this.player.hasDashAbility = false;
+                        this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
+                        this.player.ticksTouchingFloor = 0;
+                    }
                 }
 
                 // Jump.
@@ -488,20 +484,6 @@ class ZenithGame {
                         this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
                         this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
                     }
-                }
-
-                // Dash.
-                if (
-                    (controllerState.buttons.x || controllerState.buttons.b) &&
-                    this.player.hasDashAbility &&
-                    this.player.dashTicksRemaining === 0
-                ) {
-                    const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
-                    this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
-                    this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy * PLAYER_DASH_VELOCITY_VERTICAL_MULTIPLIER;
-                    this.player.hasDashAbility = false;
-                    this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
-                    this.player.ticksTouchingFloor = 0;
                 }
             }
 
@@ -519,11 +501,16 @@ class ZenithGame {
                     ]);
                 }
 
-                // TODO: figure out how to fix this to not suck.
-                this.player.velocity[0] *= 0.95;
-                this.player.velocity[1] += 0.0025;
+                if (this.player.dashTicksRemaining === 1) {
+                    this.player.velocity[0] *= 0.7;
+                    this.player.velocity[1] *= 0.4;
+                }
             } else {
-                this.player.velocity[0] *= PLAYER_AIR_FRICTION;
+                if (this.player.velocity[0] > 0) {
+                    this.player.velocity[0] = Math.max(0, this.player.velocity[0] - PLAYER_FRICTION_ACCEL);
+                } else if (this.player.velocity[0] < 0) {
+                    this.player.velocity[0] = Math.min(0, this.player.velocity[0] + PLAYER_FRICTION_ACCEL);
+                }
                 this.player.velocity[1] += PLAYER_GRAVITY_ACCEL;
             }
 
