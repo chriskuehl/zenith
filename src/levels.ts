@@ -1,7 +1,13 @@
-import { Tile, TileType, Box, TILE_WIDTH, TILE_HEIGHT, DEFAULT_BOX } from './tiles';
+import { TileId, TileType, Box, TILES, TILE_WIDTH, TILE_HEIGHT, DEFAULT_BOX } from './tiles';
 import { AwaitableImage, images } from './assets';
+import { data as defaultLevelData } from './levels/default';
 
-type MaybeTile = Tile | null;
+type MaybeTile = TileId | null;
+type LevelExport = {
+    width: number,
+    height: number,
+    tiles: string[],
+};
 
 export class Level {
     backgroundColor: string = 'pink';
@@ -11,7 +17,7 @@ export class Level {
     // Parallax background images, closest first.
     backgrounds: AwaitableImage[] = [];
 
-    constructor(columns: Tile[][]) {
+    constructor(columns: TileId[][]) {
         this.columns = columns;
         this.render();
     }
@@ -33,7 +39,8 @@ export class Level {
         const ctx = canvas.getContext('2d')!;
         for (let x = 0; x < this.width(); x++) {
             for (let y = 0; y < this.height(); y++) {
-                const tile = this.columns[x][y];
+                const tileId = this.columns[x][y];
+                const tile = tileId ? TILES[tileId] : null;
                 if (tile !== null && (tile.visible || showInvisible)) {
                     ctx.drawImage(
                         images.tiles.bitmap,
@@ -52,11 +59,33 @@ export class Level {
         this.bitmap = canvas.transferToImageBitmap();
     }
 
+    generateExport(): string {
+        const data: LevelExport = {
+            width: this.width(),
+            height: this.height(),
+            tiles: this.columns.flatMap((column, x) =>
+                column.map((tile, y) => [x, y, tile])
+                    .filter(([x, y, tile]) => tile !== null)
+                    .map(([x, y, tile]) => `${x}|${y}|${tile}`)
+            ),
+        };
+        return "export const data = " + JSON.stringify(data, null, 4) + ";";
+    }
+
     static createEmpty(width: number, height: number): Level {
         const columns = Array(width).fill(null).map(() => {
             return Array(height).fill(null);
         });
         return new Level(columns);
+    }
+
+    static createFromExport(levelExport: LevelExport): Level {
+        const level = this.createEmpty(levelExport.width, levelExport.height);
+        for (const tile of levelExport.tiles) {
+            const [x, y, tileId] = tile.split("|")
+            level.columns[parseInt(x)][parseInt(y)] = tileId;
+        }
+        return level;
     }
 }
 
@@ -69,7 +98,7 @@ const fillBox = (level: Level, box: Box, x: number, y: number, width: number, he
 };
 
 export const fixBoxEdges = (level: Level, box: Box) => {
-    const boxTiles: Set<Tile> = new Set(Object.values(box));
+    const boxTiles: Set<TileId> = new Set(Object.values(box));
     const coordsUsingBox = new Set(level.columns.flatMap(
         (column, x) => column.map((tile, y) => tile !== null && boxTiles.has(tile) ? level.tileId(x, y) : null).filter(Boolean)
     ));
@@ -126,8 +155,9 @@ export const fixBoxEdges = (level: Level, box: Box) => {
     }
 };
 
+// TODO: maybe move this into the level file itself somehow.
 export const createDefaultLevel = () => {
-    const level = Level.createEmpty(200, 50);
+    const level = Level.createFromExport(defaultLevelData);
     level.backgroundColor = 'rgb(50, 50, 50)';
     level.backgrounds = [
         images.defaultLevelParallaxX,
@@ -136,21 +166,6 @@ export const createDefaultLevel = () => {
         images.defaultLevelParallax2,
         //images.defaultLevelParallax3,
     ];
-    console.log("level:", level);
-
-    fillBox(level, DEFAULT_BOX, 20, 40, 14, 3);
-    fillBox(level, DEFAULT_BOX, 24, 36, 6, 10);
-    fillBox(level, DEFAULT_BOX, 22, 33, 6, 3);
-    fillBox(level, DEFAULT_BOX, 36, 28, 4, 3);
-    fillBox(level, DEFAULT_BOX, 40, 26, 6, 6);
-    fillBox(level, DEFAULT_BOX, 52, 44, 12, 3);
-    fillBox(level, DEFAULT_BOX, 60, 12, 6, 3);
-    fillBox(level, DEFAULT_BOX, 75, 30, 22, 3);
-    fillBox(level, DEFAULT_BOX, 107, 10, 4, 35);
-
-    fixBoxEdges(level, DEFAULT_BOX);
-
     level.render();
-
     return level;
 }

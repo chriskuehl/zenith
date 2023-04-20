@@ -4,11 +4,12 @@ import { images } from './assets';
 import "./css/main.css";
 import JoystickCircleImage from './img/joystick.svg';
 import {
-    Tile,
+    TileId,
     Box,
     TileType,
     TILE_WIDTH,
     TILE_HEIGHT,
+    TILES,
     DEFAULT_BOX,
     HIDDEN_WALL,
     HIDDEN_DEATH,
@@ -47,15 +48,18 @@ const KEYBOARD_KEYS_DOWN = new Set(['KeyS', 'ArrowDown']);
 const KEYBOARD_KEYS_JUMP = new Set(['Enter', 'Space']);
 const KEYBOARD_KEYS_DASH = new Set(['Shift', 'ShiftLeft', 'ShiftRight']);
 
-const LEVEL_EDIT_OPTIONS: [string, Tile][] = [
+const LEVEL_EDIT_OPTIONS: [string, TileId][] = [
     ["Box 1", DEFAULT_BOX.fill],
     ["Hidden wall", HIDDEN_WALL],
     ["Hidden death", HIDDEN_DEATH],
     ["Hidden jump", HIDDEN_JUMP],
 ];
 
+// Shared variables between React app and game.
 let editModeEnabled = false;
 let editModeSelectedTile = DEFAULT_BOX.fill;
+let resetLevelCallback = (): void => { throw new Error("Game not ready."); };
+let exportLevelCallback = (): void => { throw new Error("Game not ready."); };
 let canvasMouseX: number | null = null;
 let canvasMouseY: number | null = null;
 let canvasMouseButtons = 0;
@@ -172,8 +176,8 @@ const EditModeWidget: React.FC<{}> = () => {
             </ul>
         </div>
         <div>
-            <p><button>Reset Level</button></p>
-            <p><button>Export Level</button></p>
+            <p><button onClick={() => confirm("Reset all level changes?") && resetLevelCallback()}>Reset Level</button></p>
+            <p><button onClick={() => exportLevelCallback()}>Export Level</button></p>
         </div>
     </div>;
 };
@@ -308,6 +312,20 @@ class ZenithGame {
     }
 
     run() {
+        resetLevelCallback = () => {
+            this.level = createDefaultLevel();
+        }
+        exportLevelCallback = () => {
+            const levelExport = this.level.generateExport();
+            navigator.clipboard.writeText(levelExport)
+                .catch(() => {
+                    alert("Could not copy to your clipboard.");
+                })
+                .then(() => {
+                    alert("Level export copied to your clipboard.");
+                });
+        }
+
         this.renderUI();
         this.loop();
     }
@@ -481,8 +499,12 @@ class ZenithGame {
             ctx.font = "16px sans-serif";
             ctx.fillText("Left click to place, right click to erase", 10, 62);
             if (this.editModeCursorPosition) {
-                ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.fillRect(
+                ctx.drawImage(
+                    images.tiles.bitmap,
+                    TILE_WIDTH * TILES[editModeSelectedTile].offset[0],
+                    TILE_HEIGHT * TILES[editModeSelectedTile].offset[1],
+                    TILE_WIDTH,
+                    TILE_HEIGHT,
                     offset[0] + TILE_WIDTH * this.editModeCursorPosition[0],
                     offset[1] + TILE_HEIGHT * this.editModeCursorPosition[1],
                     TILE_WIDTH,
@@ -502,9 +524,9 @@ class ZenithGame {
             if (x < 0 || x >= this.level.width() || y < 0 || y >= this.level.height()) {
                 return TileType.Blocking;
             } else {
-                const tile = this.level.columns[Math.floor(x)][Math.floor(y)];
-                if (tile !== null) {
-                    return tile.type;
+                const tileId = this.level.columns[Math.floor(x)][Math.floor(y)];
+                if (tileId !== null) {
+                    return TILES[tileId].type;
                 } else {
                     return TileType.None;
                 }
@@ -592,7 +614,6 @@ class ZenithGame {
 
         if (this.canvasCtx === null) {
             const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
-            console.log("cvs:", canvas);
             if (canvas !== null) {
                 this.canvasCtx = canvas.getContext('2d');
             } else {

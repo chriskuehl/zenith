@@ -9,44 +9,55 @@ export enum TileType {
     Jump,
 }
 
-export type Tile = {
+export type TileId = string;
+
+export type TileDefinition = {
     offset: [number, number];
     type: TileType;
     visible: boolean;
 }
 
 export type Box = {
-    fill: Tile;
-    top: Tile;
-    bottom: Tile;
-    left: Tile;
-    right: Tile;
-    cornerTopLeft: Tile;
-    cornerTopRight: Tile;
-    cornerBottomLeft: Tile;
-    cornerBottomRight: Tile;
-    cornerInnerTopLeft: Tile;
-    cornerInnerTopRight: Tile;
-    cornerInnerBottomLeft: Tile;
-    cornerInnerBottomRight: Tile;
+    fill: TileId;
+    top: TileId;
+    bottom: TileId;
+    left: TileId;
+    right: TileId;
+    cornerTopLeft: TileId;
+    cornerTopRight: TileId;
+    cornerBottomLeft: TileId;
+    cornerBottomRight: TileId;
+    cornerInnerTopLeft: TileId;
+    cornerInnerTopRight: TileId;
+    cornerInnerBottomLeft: TileId;
+    cornerInnerBottomRight: TileId;
 }
 
-export const HIDDEN_WALL: Tile = {offset: [0, 0], type: TileType.Blocking, visible: false};
-export const HIDDEN_DEATH: Tile = {offset: [0, 1], type: TileType.Death, visible: false};
-export const HIDDEN_JUMP: Tile = {offset: [0, 2], type: TileType.Jump, visible: false};
+export const TILES: {[key: TileId]: TileDefinition} = {};
+
+
+const createTile = (offset: [number, number], type: TileType, visible: boolean = true): TileId => {
+    const tileId: TileId = `${offset[0]},${offset[1]}`;
+    TILES[tileId] = {offset, type, visible};
+    return tileId;
+};
+
+export const HIDDEN_WALL = createTile([0, 0], TileType.Blocking, false);
+export const HIDDEN_DEATH = createTile([0, 1], TileType.Death, false);
+export const HIDDEN_JUMP = createTile([0, 2], TileType.Jump, false);
 
 export const DEFAULT_BOX: Box = {
-    fill: {offset: [4, 2], type: TileType.Blocking, visible: true},
-    top: {offset: [5, 0], type: TileType.Blocking, visible: true},
-    bottom: {offset: [5, 3], type: TileType.Blocking, visible: true},
-    left: {offset: [4, 1], type: TileType.Blocking, visible: true},
-    right: {offset: [7, 1], type: TileType.Blocking, visible: true},
-    cornerTopLeft: {offset: [4, 0], type: TileType.Blocking, visible: true},
-    cornerTopRight: {offset: [7, 0], type: TileType.Blocking, visible: true},
-    cornerBottomLeft: {offset: [4, 3], type: TileType.Blocking, visible: true},
-    cornerBottomRight: {offset: [7, 3], type: TileType.Blocking, visible: true},
-    cornerInnerTopLeft: {offset: [6, 2], type: TileType.Blocking, visible: true},
-    cornerInnerTopRight: {offset: [5, 2], type: TileType.Blocking, visible: true},
-    cornerInnerBottomLeft: {offset: [6, 1], type: TileType.Blocking, visible: true},
-    cornerInnerBottomRight: {offset: [5, 1], type: TileType.Blocking, visible: true},
+    fill: createTile([4, 2], TileType.Blocking),
+    top: createTile([5, 0], TileType.Blocking),
+    bottom: createTile([5, 3], TileType.Blocking),
+    left: createTile([4, 1], TileType.Blocking),
+    right: createTile([7, 1], TileType.Blocking),
+    cornerTopLeft: createTile([4, 0], TileType.Blocking),
+    cornerTopRight: createTile([7, 0], TileType.Blocking),
+    cornerBottomLeft: createTile([4, 3], TileType.Blocking),
+    cornerBottomRight: createTile([7, 3], TileType.Blocking),
+    cornerInnerTopLeft: createTile([6, 2], TileType.Blocking),
+    cornerInnerTopRight: createTile([5, 2], TileType.Blocking),
+    cornerInnerBottomLeft: createTile([6, 1], TileType.Blocking),
+    cornerInnerBottomRight: createTile([5, 1], TileType.Blocking),
 };
