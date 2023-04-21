@@ -266,7 +266,7 @@ const vecxy = (state: InputState): [number, number] => {
     return [vecx / dist, vecy / dist];
 };
 
-const intersection = <T,>(s1: Set<T>, s2: Set<T>): boolean => {
+const intersects = <T,>(s1: Set<T>, s2: Set<T>): boolean => {
     for (const el of s1) {
         if (s2.has(el)) {
             return true;
@@ -283,12 +283,12 @@ enum PlayerDirection {
 type DashPosition = [PlayerDirection, number, number, number];
 
 class Player {
-    pos = PLAYER_START_POS;
-    velocity = [0, 0];
+    pos: [number, number];
+    velocity: [number, number];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
     hasDashAbility = true;
-    dashPositions: DashPosition[] = [];
+    dashPositions: DashPosition[];
     ticksTouchingFloor = 0;
     hitLeftWall = false;
     hitRightWall = false;
@@ -296,6 +296,12 @@ class Player {
     hitFloor = false;
     dead = false;
     deathWipeProgress: number = 0;
+
+    constructor() {
+        this.pos = [PLAYER_START_POS[0], PLAYER_START_POS[1]];
+        this.velocity = [0, 0];
+        this.dashPositions = [];
+    }
 };
 
 class ZenithGame {
@@ -466,11 +472,15 @@ class ZenithGame {
         ctx.drawImage(this.level.bitmap, offset[0], offset[1]);
 
         // Player.
+        // TODO: replace with ImageBitmap sprites.
+        let playerSpriteY = this.player.hasDashAbility ? 0 : 1;
+        if (this.player.dead) {
+            playerSpriteY = 3;
+        }
         ctx.drawImage(
             images.player.bitmap,
-            // TODO: replace with ImageBitmap sprites.
             this.player.direction === PlayerDirection.Left ? 0 : TILE_WIDTH * PLAYER_WIDTH,
-            this.player.hasDashAbility ? 0 : TILE_HEIGHT * PLAYER_HEIGHT,
+            playerSpriteY * TILE_HEIGHT * PLAYER_HEIGHT,
             TILE_WIDTH * PLAYER_WIDTH,
             TILE_HEIGHT * PLAYER_HEIGHT,
             offset[0] + TILE_WIDTH * (this.player.pos[0] - (PLAYER_WIDTH / 2)),
@@ -547,10 +557,6 @@ class ZenithGame {
     }
 
     handlePlayerMovement() {
-        if (this.player.dead) {
-            return;
-        }
-
         const [vecx, vecy] = this.player.velocity;
         const dist = (vecx ** 2 + vecy ** 2) ** 0.5;
         const steps = Math.ceil(dist / PLAYER_MOVEMENT_STEP);
@@ -573,27 +579,32 @@ class ZenithGame {
             let newx = this.player.pos[0] + stepVecx;
             let newy = this.player.pos[1] + stepVecy;
 
-            this.player.hitLeftWall = (
-                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP) === TileType.Blocking ||
-                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - 2) === TileType.Blocking
-            );
-            this.player.hitRightWall = (
-                tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP) === TileType.Blocking ||
-                tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - 2) === TileType.Blocking
-            );
+            const leftTileTypes = new Set([
+                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
+                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
+            ]);
+            const rightTileTypes = new Set([
+                tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
+                tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - 2),
+            ]);
+            this.player.hitLeftWall = leftTileTypes.has(TileType.Blocking);
+            this.player.hitRightWall = rightTileTypes.has(TileType.Blocking);
 
             if (this.player.hitLeftWall || this.player.hitRightWall) {
                 newx = this.player.pos[0];
             }
 
-            this.player.hitCeiling = (
-                tile(newx + PLAYER_WIDTH / 2, newy - 2) === TileType.Blocking ||
-                tile(newx - PLAYER_WIDTH / 2, newy - 2) === TileType.Blocking
-            );
-            this.player.hitFloor = (
-                tile(newx + PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP) === TileType.Blocking ||
-                tile(newx - PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP) === TileType.Blocking
-            );
+            const ceilingTileTypes = new Set([
+                tile(newx + PLAYER_WIDTH / 2, newy - 2),
+                tile(newx - PLAYER_WIDTH / 2, newy - 2),
+            ]);
+            const floorTileTypes = new Set([
+                tile(newx + PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP),
+                tile(newx - PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP),
+            ]);
+
+            this.player.hitCeiling = ceilingTileTypes.has(TileType.Blocking);
+            this.player.hitFloor = floorTileTypes.has(TileType.Blocking);
 
             if (this.player.hitCeiling || this.player.hitFloor) {
                 newy = this.player.pos[1];
@@ -601,6 +612,18 @@ class ZenithGame {
 
             this.player.pos[0] = newx;
             this.player.pos[1] = newy;
+
+            const allTouchingTileTypes = new Set([
+                ...leftTileTypes,
+                ...rightTileTypes,
+                ...floorTileTypes,
+                ...ceilingTileTypes,
+            ]);
+
+            if (allTouchingTileTypes.has(TileType.Death)) {
+                this.player.dead = true;
+                return;
+            }
         }
 
         if ((this.player.hitLeftWall && this.player.velocity[0] < 0) || (this.player.hitRightWall && this.player.velocity[0] > 0)) {
@@ -636,12 +659,12 @@ class ZenithGame {
 
     getInputState(ctrlr: ControllerState | null): InputState {
         return {
-            left: (ctrlr && (ctrlr.joystick.left || ctrlr.dpad.left)) || intersection(KEYBOARD_KEYS_LEFT, canvasKeysDown),
-            down: (ctrlr && (ctrlr.joystick.down || ctrlr.dpad.down)) || intersection(KEYBOARD_KEYS_DOWN, canvasKeysDown),
-            right: (ctrlr && (ctrlr.joystick.right || ctrlr.dpad.right)) || intersection(KEYBOARD_KEYS_RIGHT, canvasKeysDown),
-            up: (ctrlr && (ctrlr.joystick.up || ctrlr.dpad.up)) || intersection(KEYBOARD_KEYS_UP, canvasKeysDown),
-            jump: (ctrlr && ctrlr.buttons.a) || intersection(KEYBOARD_KEYS_JUMP, canvasKeysDown),
-            dash: (ctrlr && (ctrlr.buttons.x || ctrlr.buttons.b)) || intersection(KEYBOARD_KEYS_DASH, canvasKeysDown),
+            left: (ctrlr && (ctrlr.joystick.left || ctrlr.dpad.left)) || intersects(KEYBOARD_KEYS_LEFT, canvasKeysDown),
+            down: (ctrlr && (ctrlr.joystick.down || ctrlr.dpad.down)) || intersects(KEYBOARD_KEYS_DOWN, canvasKeysDown),
+            right: (ctrlr && (ctrlr.joystick.right || ctrlr.dpad.right)) || intersects(KEYBOARD_KEYS_RIGHT, canvasKeysDown),
+            up: (ctrlr && (ctrlr.joystick.up || ctrlr.dpad.up)) || intersects(KEYBOARD_KEYS_UP, canvasKeysDown),
+            jump: (ctrlr && ctrlr.buttons.a) || intersects(KEYBOARD_KEYS_JUMP, canvasKeysDown),
+            dash: (ctrlr && (ctrlr.buttons.x || ctrlr.buttons.b)) || intersects(KEYBOARD_KEYS_DASH, canvasKeysDown),
         };
     }
 
@@ -683,80 +706,80 @@ class ZenithGame {
                 if (this.player.deathWipeProgress >= 1) {
                     this.player = new Player();
                 }
-            }
-
-            const inputState = this.getInputState(controllerState);
-
-            if (this.player.dashTicksRemaining === 0) {
-                const [vecx, vecy] = vecxy(inputState);
-                if (vecx < 0) {
-                    this.player.direction = PlayerDirection.Left;
-                    this.player.velocity[0] = Math.max(-PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] - PLAYER_WALK_ACCEL);
-                } else if (vecx > 0) {
-                    this.player.direction = PlayerDirection.Right;
-                    this.player.velocity[0] = Math.min(PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] + PLAYER_WALK_ACCEL);
-                }
-
-                // Dash.
-                if (
-                    inputState.dash &&
-                    this.player.hasDashAbility &&
-                    this.player.dashTicksRemaining === 0
-                ) {
-                    const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
-                    this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
-                    this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
-                    this.player.hasDashAbility = false;
-                    this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
-                    this.player.ticksTouchingFloor = 0;
-                }
-            }
-
-            // Jump.
-            if (inputState.jump) {
-                if (this.player.ticksTouchingFloor > 0) {
-                    this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
-                } else if (this.player.hitLeftWall) {
-                    this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
-                    this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
-                } else if (this.player.hitRightWall) {
-                    this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
-                    this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
-                }
-            }
-
-            if (this.player.dashTicksRemaining > 0) {
-                if (
-                        this.player.dashPositions.length === 0 ||
-                        this.player.dashPositions[this.player.dashPositions.length - 1][1] !== this.player.pos[0] ||
-                        this.player.dashPositions[this.player.dashPositions.length - 1][2] !== this.player.pos[1]
-                ) {
-                    this.player.dashPositions.push([
-                        this.player.direction,
-                        this.player.pos[0],
-                        this.player.pos[1],
-                        PLAYER_DASH_CONTRAIL_OPACITY,
-                    ]);
-                }
-
-                if (this.player.dashTicksRemaining === 1) {
-                    this.player.velocity[0] *= 0.7;
-                    this.player.velocity[1] *= 0.4;
-                }
             } else {
-                if (this.player.velocity[0] > 0) {
-                    this.player.velocity[0] = Math.max(0, this.player.velocity[0] - PLAYER_FRICTION_ACCEL);
-                } else if (this.player.velocity[0] < 0) {
-                    this.player.velocity[0] = Math.min(0, this.player.velocity[0] + PLAYER_FRICTION_ACCEL);
+                const inputState = this.getInputState(controllerState);
+
+                if (this.player.dashTicksRemaining === 0) {
+                    const [vecx, vecy] = vecxy(inputState);
+                    if (vecx < 0) {
+                        this.player.direction = PlayerDirection.Left;
+                        this.player.velocity[0] = Math.max(-PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] - PLAYER_WALK_ACCEL);
+                    } else if (vecx > 0) {
+                        this.player.direction = PlayerDirection.Right;
+                        this.player.velocity[0] = Math.min(PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] + PLAYER_WALK_ACCEL);
+                    }
+
+                    // Dash.
+                    if (
+                        inputState.dash &&
+                        this.player.hasDashAbility &&
+                        this.player.dashTicksRemaining === 0
+                    ) {
+                        const [dashVecx, dashVecy] = (vecy || vecy) ? [vecx, vecy] : [this.player.direction === PlayerDirection.Left ? -1 : 1, 0];
+                        this.player.velocity[0] = PLAYER_DASH_VELOCITY * dashVecx;
+                        this.player.velocity[1] = PLAYER_DASH_VELOCITY * dashVecy;
+                        this.player.hasDashAbility = false;
+                        this.player.dashTicksRemaining = PLAYER_DASH_HANG_TIME;
+                        this.player.ticksTouchingFloor = 0;
+                    }
                 }
-                this.player.velocity[1] += PLAYER_GRAVITY_ACCEL;
+
+                // Jump.
+                if (inputState.jump) {
+                    if (this.player.ticksTouchingFloor > 0) {
+                        this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
+                    } else if (this.player.hitLeftWall) {
+                        this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
+                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                    } else if (this.player.hitRightWall) {
+                        this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
+                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                    }
+                }
+
+                if (this.player.dashTicksRemaining > 0) {
+                    if (
+                            this.player.dashPositions.length === 0 ||
+                            this.player.dashPositions[this.player.dashPositions.length - 1][1] !== this.player.pos[0] ||
+                            this.player.dashPositions[this.player.dashPositions.length - 1][2] !== this.player.pos[1]
+                    ) {
+                        this.player.dashPositions.push([
+                            this.player.direction,
+                            this.player.pos[0],
+                            this.player.pos[1],
+                            PLAYER_DASH_CONTRAIL_OPACITY,
+                        ]);
+                    }
+
+                    if (this.player.dashTicksRemaining === 1) {
+                        this.player.velocity[0] *= 0.7;
+                        this.player.velocity[1] *= 0.4;
+                    }
+                } else {
+                    if (this.player.velocity[0] > 0) {
+                        this.player.velocity[0] = Math.max(0, this.player.velocity[0] - PLAYER_FRICTION_ACCEL);
+                    } else if (this.player.velocity[0] < 0) {
+                        this.player.velocity[0] = Math.min(0, this.player.velocity[0] + PLAYER_FRICTION_ACCEL);
+                    }
+                    this.player.velocity[1] += PLAYER_GRAVITY_ACCEL;
+                }
+
+                this.player.dashPositions = this.player.dashPositions
+                    .map((p: DashPosition): DashPosition => [p[0], p[1], p[2], p[3] - PLAYER_DASH_CONTRAIL_FADE])
+                    .filter(p => p[3] > 0);
+
+                this.handlePlayerMovement();
             }
-
-            this.player.dashPositions = this.player.dashPositions
-                .map((p: DashPosition): DashPosition => [p[0], p[1], p[2], p[3] - PLAYER_DASH_CONTRAIL_FADE])
-                .filter(p => p[3] > 0);
-
-            this.handlePlayerMovement();
         }
 
         // Edit mode.
