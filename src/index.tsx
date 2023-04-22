@@ -20,13 +20,14 @@ import { createDefaultLevel, fixBoxEdges } from './levels';
 const TICKS_PER_SECOND = 360;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 
-const PLAYER_WIDTH = 2;
-const PLAYER_HEIGHT = 3;
+const INPUT_BUFFERING_TICKS = 30; // Ticks.
+
+const PLAYER_WIDTH = 2; // Tiles.
+const PLAYER_HEIGHT = 3; // Tiles.
 const PLAYER_WALK_ACCEL = 0.015;  // Tiles per tick per tick.
 const PLAYER_MAX_WALK_VELOCITY = 0.1; // Tiles per tick.
 const PLAYER_FRICTION_ACCEL = 0.003; // Tiles per tick per tick.
 const PLAYER_DASH_VELOCITY = 0.5;  // Tiles per tick.
-// TODO: rename this if we decide not to restore hang time.
 const PLAYER_DASH_HANG_TIME = 30; // Ticks.
 const PLAYER_DASH_CONTRAIL_OPACITY = 0.8; // Opacity.
 const PLAYER_DASH_CONTRAIL_FADE = 0.01; // Opacity decrease per tick.
@@ -97,6 +98,54 @@ type InputState = {
     up: boolean;
     jump: boolean;
     dash: boolean;
+};
+
+// Used to buffer inputs (so that you can press a button slightly early) and to
+// differentiate between holding and pressing a button.
+//
+// Input buffering is important for improving game "feeling". For example, it
+// feels awful if you jump 1 frame before hitting the ground and then "stick"
+// to the ground and it feels like your input was ignored (even though
+// technically you were a frame early).
+class BufferedInputState {
+    private currentState: InputState;
+    private holdingJump = false;
+    private holdingDash = false;
+    private jumpTicksRemaining = 0;
+    private dashTicksRemaining = 0;
+
+    update(state: InputState) {
+        if (state.jump) {
+            if (!this.holdingJump) {
+                this.jumpTicksRemaining = INPUT_BUFFERING_TICKS;
+                this.holdingJump = true;
+            }
+        } else {
+            this.holdingJump = false;
+        }
+        if (state.dash) {
+            if (!this.holdingDash) {
+                this.dashTicksRemaining = INPUT_BUFFERING_TICKS;
+                this.holdingDash = true;
+            }
+        } else {
+            this.holdingDash = false;
+        }
+        this.currentState = state;
+    }
+
+    // TODO: get rid of this and use a global tick counter instead.
+    tick() {
+        this.jumpTicksRemaining--;
+        this.dashTicksRemaining--;
+    }
+
+    get left(): boolean { return this.currentState.left; }
+    get down(): boolean { return this.currentState.down; }
+    get right(): boolean { return this.currentState.right; }
+    get up(): boolean { return this.currentState.up; }
+    get jump(): boolean { return this.jumpTicksRemaining > 0; }
+    get dash(): boolean { return this.dashTicksRemaining > 0; }
 };
 
 const StatWidget: React.FC<{player: Player, fps: number, ticksPerFrame: number}> = ({player, fps, ticksPerFrame}) => {
@@ -246,7 +295,7 @@ const ZenithApp: React.FC<ZenithAppProps> = (props) => {
     </div>;
 };
 
-const vecxy = (state: InputState): [number, number] => {
+const vecxy = (state: BufferedInputState): [number, number] => {
     let vecx = 0;
     let vecy = 0;
 
@@ -316,6 +365,7 @@ class ZenithGame {
     level = createDefaultLevel();
     editModeEnabled = false;
     editModeCursorPosition: [number, number] | null = null;
+    inputState = new BufferedInputState();
 
     constructor(container: HTMLDivElement) {
         this.root = createRoot(container);
@@ -696,6 +746,7 @@ class ZenithGame {
 
         // Game logic.
         const controllerState = this.getControllerState();
+        this.inputState.update(this.getInputState(controllerState));
 
         for (let tick = 0; tick < this.ticksPerFrame; tick++) {
             this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
@@ -707,10 +758,8 @@ class ZenithGame {
                     this.player = new Player();
                 }
             } else {
-                const inputState = this.getInputState(controllerState);
-
                 if (this.player.dashTicksRemaining === 0) {
-                    const [vecx, vecy] = vecxy(inputState);
+                    const [vecx, vecy] = vecxy(this.inputState);
                     if (vecx < 0) {
                         this.player.direction = PlayerDirection.Left;
                         this.player.velocity[0] = Math.max(-PLAYER_MAX_WALK_VELOCITY, this.player.velocity[0] - PLAYER_WALK_ACCEL);
@@ -721,7 +770,7 @@ class ZenithGame {
 
                     // Dash.
                     if (
-                        inputState.dash &&
+                        this.inputState.dash &&
                         this.player.hasDashAbility &&
                         this.player.dashTicksRemaining === 0
                     ) {
@@ -735,7 +784,7 @@ class ZenithGame {
                 }
 
                 // Jump.
-                if (inputState.jump) {
+                if (this.inputState.jump) {
                     if (this.player.ticksTouchingFloor > 0) {
                         this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
                     } else if (this.player.hitLeftWall) {
@@ -780,6 +829,8 @@ class ZenithGame {
 
                 this.handlePlayerMovement();
             }
+
+            this.inputState.tick();
         }
 
         // Edit mode.
