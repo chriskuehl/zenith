@@ -581,7 +581,7 @@ class ZenithGame {
 
             const leftTileTypes = new Set([
                 tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
-                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
+                tile(newx - PLAYER_WIDTH / 2, this.player.pos[1] - 2),
             ]);
             const rightTileTypes = new Set([
                 tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
