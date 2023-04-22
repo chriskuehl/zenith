@@ -33,6 +33,10 @@ const PLAYER_DASH_CONTRAIL_OPACITY = 0.8; // Opacity.
 const PLAYER_DASH_CONTRAIL_FADE = 0.01; // Opacity decrease per tick.
 const PLAYER_GRAVITY_ACCEL = 0.0025; // Tiles per tick per tick.
 const PLAYER_JUMP_VELOCITY = 0.2; // Tiles per tick.
+// Not the total length a jump takes, but enough so that you can't immediately
+// wall jump following a vertical jump next to a wall.
+const PLAYER_JUMP_TICKS = INPUT_BUFFERING_TICKS * 2;
+const PLAYER_WALL_JUMP_BUFFER_TICKS = 60; // Ticks.
 const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELOCITY ** 2)) ** 0.5; // Tiles per tick.
 const PLAYER_MOVEMENT_STEP = 1 / TILE_WIDTH; // Tiles.
 const PLAYER_DEATH_WIPE_PROGRESS = 0.0015; // Progress (out of 1) per tick.
@@ -336,13 +340,12 @@ class Player {
     velocity: [number, number];
     direction = PlayerDirection.Right;
     dashTicksRemaining = 0;
+    jumpTicksRemaining = 0;
     hasDashAbility = true;
     dashPositions: DashPosition[];
     ticksTouchingFloor = 0;
-    hitLeftWall = false;
-    hitRightWall = false;
-    hitCeiling = false;
-    hitFloor = false;
+    atLeftWallTicks = 0;
+    atRightWallTicks = 0;
     dead = false;
     deathWipeProgress: number = 0;
 
@@ -625,6 +628,11 @@ class ZenithGame {
             }
         }
 
+        let hitLeftWall = false;
+        let hitRightWall = false;
+        let hitCeiling = false;
+        let hitFloor = false;
+
         for (let step = 0; step < steps; step++) {
             let newx = this.player.pos[0] + stepVecx;
             let newy = this.player.pos[1] + stepVecy;
@@ -637,10 +645,10 @@ class ZenithGame {
                 tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - PLAYER_MOVEMENT_STEP),
                 tile(newx + PLAYER_WIDTH / 2, this.player.pos[1] - 2),
             ]);
-            this.player.hitLeftWall = leftTileTypes.has(TileType.Blocking);
-            this.player.hitRightWall = rightTileTypes.has(TileType.Blocking);
+            hitLeftWall = leftTileTypes.has(TileType.Blocking);
+            hitRightWall = rightTileTypes.has(TileType.Blocking);
 
-            if (this.player.hitLeftWall || this.player.hitRightWall) {
+            if (hitLeftWall || hitRightWall) {
                 newx = this.player.pos[0];
             }
 
@@ -653,10 +661,10 @@ class ZenithGame {
                 tile(newx - PLAYER_WIDTH / 2, newy - PLAYER_MOVEMENT_STEP),
             ]);
 
-            this.player.hitCeiling = ceilingTileTypes.has(TileType.Blocking);
-            this.player.hitFloor = floorTileTypes.has(TileType.Blocking);
+            hitCeiling = ceilingTileTypes.has(TileType.Blocking);
+            hitFloor = floorTileTypes.has(TileType.Blocking);
 
-            if (this.player.hitCeiling || this.player.hitFloor) {
+            if (hitCeiling || hitFloor) {
                 newy = this.player.pos[1];
             }
 
@@ -676,11 +684,11 @@ class ZenithGame {
             }
         }
 
-        if ((this.player.hitLeftWall && this.player.velocity[0] < 0) || (this.player.hitRightWall && this.player.velocity[0] > 0)) {
+        if ((hitLeftWall && this.player.velocity[0] < 0) || (hitRightWall && this.player.velocity[0] > 0)) {
             this.player.velocity[0] = 0;
         }
 
-        if (this.player.hitFloor) {
+        if (hitFloor) {
             if (this.player.velocity[1] > 0) {
                 this.player.velocity[1] = 0;
             }
@@ -693,8 +701,28 @@ class ZenithGame {
             this.player.ticksTouchingFloor = 0;
         }
 
-        if (this.player.hitCeiling && this.player.velocity[1] < 0) {
+        if (hitCeiling && this.player.velocity[1] < 0) {
             this.player.velocity[1] = 0;
+        }
+
+        if (hitLeftWall) {
+            this.player.atLeftWallTicks = PLAYER_WALL_JUMP_BUFFER_TICKS;
+        } else {
+            if (stepVecx !== 0) {
+                this.player.atLeftWallTicks = 0;
+            } else if (this.player.atLeftWallTicks > 0) {
+                this.player.atLeftWallTicks--;
+            }
+        }
+
+        if (hitRightWall) {
+            this.player.atRightWallTicks = PLAYER_WALL_JUMP_BUFFER_TICKS;
+        } else {
+            if (stepVecx !== 0) {
+                this.player.atRightWallTicks = 0;
+            } else if (this.player.atRightWallTicks > 0) {
+                this.player.atRightWallTicks--;
+            }
         }
     }
 
@@ -750,6 +778,7 @@ class ZenithGame {
 
         for (let tick = 0; tick < this.ticksPerFrame; tick++) {
             this.player.dashTicksRemaining = Math.max(0, this.player.dashTicksRemaining - 1);
+            this.player.jumpTicksRemaining = Math.max(0, this.player.jumpTicksRemaining - 1);
 
             if (this.player.dead) {
                 this.player.deathWipeProgress = Math.min(1, this.player.deathWipeProgress += PLAYER_DEATH_WIPE_PROGRESS);
@@ -784,15 +813,32 @@ class ZenithGame {
                 }
 
                 // Jump.
-                if (this.inputState.jump) {
+                if (this.inputState.jump && this.player.jumpTicksRemaining === 0) {
                     if (this.player.ticksTouchingFloor > 0) {
                         this.player.velocity[1] = -PLAYER_JUMP_VELOCITY;
-                    } else if (this.player.hitLeftWall) {
-                        this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
-                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
-                    } else if (this.player.hitRightWall) {
-                        this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
-                        this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                        this.player.jumpTicksRemaining = PLAYER_JUMP_TICKS;
+                    } else if (this.player.atLeftWallTicks > 0) {
+                        if (this.inputState.left) {
+                            // Holding left, go mainly right only.
+                            this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY * 1.5;
+                            this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY * 0.5;
+                        } else {
+                            // Neutral jump, go up-right.
+                            this.player.velocity[0] = PLAYER_WALL_JUMP_VELOCITY;
+                            this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                        }
+                        this.player.jumpTicksRemaining = PLAYER_JUMP_TICKS;
+                    } else if (this.player.atRightWallTicks > 0) {
+                        if (this.inputState.right) {
+                            // Holding right, go mainly left only.
+                            this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY * 1.5;
+                            this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY * 0.5;
+                        } else {
+                            // Neutral jump, go up-left.
+                            this.player.velocity[0] = -PLAYER_WALL_JUMP_VELOCITY;
+                            this.player.velocity[1] = -PLAYER_WALL_JUMP_VELOCITY;
+                        }
+                        this.player.jumpTicksRemaining = PLAYER_JUMP_TICKS;
                     }
                 }
 
