@@ -11,6 +11,7 @@ import {
     TILE_HEIGHT,
     TILES,
     DEFAULT_BOX,
+    DEFAULT_SPIKES,
     HIDDEN_WALL,
     HIDDEN_DEATH,
     HIDDEN_JUMP,
@@ -57,6 +58,7 @@ const KEYBOARD_KEYS_DASH = new Set(['Shift', 'ShiftLeft', 'ShiftRight']);
 
 const LEVEL_EDIT_OPTIONS: [string, TileId][] = [
     ["Box 1", DEFAULT_BOX.fill],
+    ["Spikes 1", DEFAULT_SPIKES.fill],
     ["Hidden wall", HIDDEN_WALL],
     ["Hidden death", HIDDEN_DEATH],
     ["Hidden jump", HIDDEN_JUMP],
@@ -67,6 +69,7 @@ let editModeEnabled = false;
 let editModeSelectedTile = DEFAULT_BOX.fill;
 let resetLevelCallback = (): void => { throw new Error("Game not ready."); };
 let exportLevelCallback = (): void => { throw new Error("Game not ready."); };
+let exportImageCallback = (): void => { throw new Error("Game not ready."); };
 let canvasMouseX: number | null = null;
 let canvasMouseY: number | null = null;
 let canvasMouseButtons = 0;
@@ -233,6 +236,7 @@ const EditModeWidget: React.FC<{}> = () => {
         <div>
             <p><button onClick={() => confirm("Reset all level changes?") && resetLevelCallback()}>Reset Level</button></p>
             <p><button onClick={() => exportLevelCallback()}>Export Level</button></p>
+            <p><button onClick={() => exportImageCallback()}>Export Image</button></p>
         </div>
     </div>;
 };
@@ -390,6 +394,13 @@ class ZenithGame {
                 .then(() => {
                     alert("Level export copied to your clipboard.");
                 });
+        };
+        exportImageCallback = () => {
+            const newWindow = window.open("", "_blank")!;
+            const image = new Image();
+            image.src = this.canvasCtx!.canvas.toDataURL("image/png");
+            newWindow.document.write(image.outerHTML);
+            newWindow.focus();
         };
 
         this.renderUI();
@@ -915,6 +926,7 @@ class ZenithGame {
                     this.level.columns[this.editModeCursorPosition[0]][this.editModeCursorPosition[1]] = newTile;
                     // TODO: fix all boxes?
                     fixBoxEdges(this.level, DEFAULT_BOX);
+                    fixBoxEdges(this.level, DEFAULT_SPIKES);
                     // TODO: implement some method to re-render only the changed tiles on top of the existing bitmap.
                     this.level.render(true);
                 }

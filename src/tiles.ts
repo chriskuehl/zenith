@@ -61,3 +61,19 @@ export const DEFAULT_BOX: Box = {
     cornerInnerBottomLeft: createTile([6, 1], TileType.Blocking),
     cornerInnerBottomRight: createTile([5, 1], TileType.Blocking),
 };
+
+export const DEFAULT_SPIKES: Box = {
+    fill: createTile([8, 2], TileType.Death),
+    top: createTile([9, 0], TileType.Death),
+    bottom: createTile([9, 3], TileType.Death),
+    left: createTile([8, 1], TileType.Death),
+    right: createTile([11, 1], TileType.Death),
+    cornerTopLeft: createTile([8, 0], TileType.Death),
+    cornerTopRight: createTile([11, 0], TileType.Death),
+    cornerBottomLeft: createTile([8, 3], TileType.Death),
+    cornerBottomRight: createTile([11, 3], TileType.Death),
+    cornerInnerTopLeft: createTile([10, 2], TileType.Death),
+    cornerInnerTopRight: createTile([9, 2], TileType.Death),
+    cornerInnerBottomLeft: createTile([10, 1], TileType.Death),
+    cornerInnerBottomRight: createTile([9, 1], TileType.Death),
+};
