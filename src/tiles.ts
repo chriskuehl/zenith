@@ -44,7 +44,8 @@ const createTile = (offset: [number, number], type: TileType, visible: boolean =
 
 export const HIDDEN_WALL = createTile([0, 0], TileType.Blocking, false);
 export const HIDDEN_DEATH = createTile([0, 1], TileType.Death, false);
-export const HIDDEN_JUMP = createTile([0, 2], TileType.Jump, false);
+// TODO: Make this invisible once we're no longer using this as a visible test tile.
+export const HIDDEN_JUMP = createTile([0, 2], TileType.Jump, true);
 
 export const DEFAULT_BOX: Box = {
     fill: createTile([4, 2], TileType.Blocking),

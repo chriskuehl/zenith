@@ -718,6 +718,9 @@ class ZenithGame {
             if (allTouchingTileTypes.has(TileType.Death)) {
                 this.player.dead = true;
                 return;
+            } else if (allTouchingTileTypes.has(TileType.Jump)) {
+                this.player.velocity[1] = -PLAYER_JUMP_VELOCITY * 1.5;
+                this.player.hasDashAbility = true;
             }
         }
 
