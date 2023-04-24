@@ -42,6 +42,7 @@ const PLAYER_WALL_JUMP_VELOCITY = PLAYER_JUMP_VELOCITY; //(2 * (PLAYER_JUMP_VELO
 const PLAYER_MOVEMENT_STEP = 1 / TILE_WIDTH; // Tiles.
 const PLAYER_DEATH_WIPE_PROGRESS = 0.0015; // Progress (out of 1) per tick.
 const PLAYER_START_POS = [20, 2]; // Tiles.
+//const PLAYER_START_POS = [60, 2]; // Tiles.
 // Time to restore dash ability when standing on the floor. Used to make
 // wavedashing more challenging.
 //
@@ -538,7 +539,7 @@ class ZenithGame {
         // Player.
         // TODO: replace with ImageBitmap sprites.
         let playerSpriteY = this.player.hasDashAbility ? 0 : 1;
-        if (this.player.dead) {
+        if (this.player.dead && this.player.deathWipeProgress > 0.15) {
             playerSpriteY = 3;
         }
         ctx.drawImage(
@@ -594,10 +595,35 @@ class ZenithGame {
             }
         }
 
-        // Death wipe.
+        // Death animations.
         if (this.player.dead) {
+            const center = [
+                offset[0] + this.player.pos[0] * TILE_WIDTH,
+                offset[1] + (this.player.pos[1] - (PLAYER_HEIGHT / 2)) * TILE_HEIGHT,
+            ];
             let wipeSize;
 
+            // Death circles.
+            const circleCount = 8;
+            const radius = Math.max(1, (0.3 - this.player.deathWipeProgress) * 100);
+            const alpha = Math.max(0, 1 - (this.player.deathWipeProgress * 3));
+
+            for (let i = 0; i < circleCount; i++) {
+                const angle = ((Math.PI * 2) / circleCount) * i + (Math.PI * 2) * this.player.deathWipeProgress;
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(
+                    center[0] + Math.cos(angle) * radius,
+                    center[1] + Math.sin(angle) * radius,
+                    7,
+                    0,
+                    2 * Math.PI,
+                );
+                ctx.fill();
+            }
+
+
+            // Death wipe.
             if (this.player.deathWipeProgress < 0.3) {
                 wipeSize = 1 - (this.player.deathWipeProgress * 3.2);
             } else if (this.player.deathWipeProgress < 0.8) {
@@ -609,8 +635,8 @@ class ZenithGame {
             ctx.fillStyle = 'black';
             ctx.beginPath();
             ctx.arc(
-                offset[0] + this.player.pos[0] * TILE_WIDTH,
-                offset[1] + this.player.pos[1] * TILE_WIDTH,
+                center[0],
+                center[1],
                 Math.max(ctx.canvas.width, ctx.canvas.height) * wipeSize,
                 0,
                 2 * Math.PI,
